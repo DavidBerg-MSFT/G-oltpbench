@@ -22,7 +22,7 @@
 require_once(dirname(__FILE__) . '/OltpBenchTest.php');
 
 $status = 1;
-$dir = count($argv) > 1 && is_file($argv[count($argv) - 1]) ? dirname($argv[count($argv) - 1]) : trim(shell_exec('pwd'));
+$dir = count($argv) > 1 && is_dir($argv[count($argv) - 1]) ? $argv[count($argv) - 1] : trim(shell_exec('pwd'));
 $test = new OltpBenchTest($dir);
 if ($rows = $test->getResults()) {
   foreach($rows as $i => $row) {
