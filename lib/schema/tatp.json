@@ -1,0 +1,10 @@
+[
+  {"name": "tatp_ratio_delete_call_forwarding", "type": "tinyint unsigned"},
+  {"name": "tatp_ratio_get_access_data", "type": "tinyint unsigned"},
+  {"name": "tatp_ratio_get_new_destination", "type": "tinyint unsigned"},
+  {"name": "tatp_ratio_get_subscriber_data", "type": "tinyint unsigned"},
+  {"name": "tatp_ratio_insert_call_forwarding", "type": "tinyint unsigned"},
+  {"name": "tatp_ratio_update_location", "type": "tinyint unsigned"},
+  {"name": "tatp_ratio_update_subscriber_data", "type": "tinyint unsigned"},
+  {"name": "tatp_subscribers", "type": "int unsigned"}
+]

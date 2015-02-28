@@ -1,0 +1,12 @@
+[
+  {"name": "epinions_ratio_get_review_item_id", "type": "tinyint unsigned"},
+  {"name": "epinions_ratio_get_reviews_user", "type": "tinyint unsigned"},
+  {"name": "epinions_ratio_get_average_rating_trusted_user", "type": "tinyint unsigned"},
+  {"name": "epinions_ratio_get_average_rating", "type": "tinyint unsigned"},
+  {"name": "epinions_ratio_get_item_reviews_trusted_user", "type": "tinyint unsigned"},
+  {"name": "epinions_ratio_update_user_name", "type": "tinyint unsigned"},
+  {"name": "epinions_ratio_update_item_title", "type": "tinyint unsigned"},
+  {"name": "epinions_ratio_update_review_rating", "type": "tinyint unsigned"},
+  {"name": "epinions_ratio_update_trust_rating", "type": "tinyint unsigned"},
+  {"name": "epinions_users", "type": "int unsigned"}
+]

@@ -1,0 +1,9 @@
+[
+  {"name": "ycsb_ratio_read", "type": "tinyint unsigned"},
+  {"name": "ycsb_ratio_insert", "type": "tinyint unsigned"},
+  {"name": "ycsb_ratio_scan", "type": "tinyint unsigned"},
+  {"name": "ycsb_ratio_update", "type": "tinyint unsigned"},
+  {"name": "ycsb_ratio_delete", "type": "tinyint unsigned"},
+  {"name": "ycsb_ratio_read_modify_write", "type": "tinyint unsigned"},
+  {"name": "ycsb_user_rows", "type": "int unsigned"}
+]

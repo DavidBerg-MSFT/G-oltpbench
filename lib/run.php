@@ -15,10 +15,10 @@
 // limitations under the License.
 
 /**
- * run script for TeraSort testing
+ * run script for OLTP Benchmark testing
  */
-require_once(dirname(__FILE__) . '/TeraSortTest.php');
-$test = new TeraSortTest();
+require_once(dirname(__FILE__) . '/OltpBenchTest.php');
+$test = new OltpBenchTest();
 $options = $test->getRunOptions();
 $verbose = isset($options['verbose']) && $options['verbose'];
 
@@ -28,14 +28,14 @@ if ($invalid = $test->validateRunOptions($options)) {
   exit(1);
 }
 // missing dependencies
-else if ($dependencies = TeraSortTest::validateDependencies($options)) {
+else if ($dependencies = OltpBenchTest::validateDependencies($options)) {
   foreach($dependencies as $dependency) print_msg(sprintf('missing dependency %s [PATH=%s]', $dependency, getenv('PATH')), $verbose, __FILE__, __LINE__, TRUE);
   exit(1);
 }
 
-print_msg(sprintf('Starting TeraSort test'), $verbose, __FILE__, __LINE__);
+print_msg(sprintf('Starting OLTP Benchmark test'), $verbose, __FILE__, __LINE__);
 $status = $test->test() ? 0 : 1;
-print_msg(sprintf('Exiting TeraSort test with status code %d', $status), $verbose, __FILE__, __LINE__);
+print_msg(sprintf('Exiting OLTP Benchmark test with status code %d', $status), $verbose, __FILE__, __LINE__);
 
 exit($status);
 ?>

@@ -15,23 +15,21 @@
 // limitations under the License.
 
 /**
- * gets results from spec cpu 2006 csv files and renders them as [key]=[value]
+ * gets results from OLTB benchmark and renders them as [key]=[value]
  * pairs (1 per line of output). If both base and peak results exist, 
  * [key]1=[value] will be for base and [key]2=[value] will be for peak
  */
-require_once(dirname(__FILE__) . '/TeraSortTest.php');
+require_once(dirname(__FILE__) . '/OltpBenchTest.php');
 
 $status = 1;
 $dir = count($argv) > 1 && is_file($argv[count($argv) - 1]) ? dirname($argv[count($argv) - 1]) : trim(shell_exec('pwd'));
-$test = new TeraSortTest($dir);
-$options = parse_args(array('v' => 'verbose'));
-$rows = array();
-if ($results = $test->getResults(isset($options['verbose']))) $rows[] = $results;
-foreach($rows as $i => $results) {
-  $status = 0;
-  $suffix = count($rows) > 1 ? $i + 1 : '';
-  foreach($results as $key => $val) printf("%s%s=%s\n", $key, $suffix, $val);
+$test = new OltpBenchTest($dir);
+if ($rows = $test->getResults()) {
+  foreach($rows as $i => $row) {
+    $status = 0;
+    $suffix = count($rows) > 1 ? $i + 1 : '';
+    foreach($row as $key => $val) printf("%s%s=%s\n", $key, $suffix, $val);
+  } 
 }
-
 exit($status);
 ?>

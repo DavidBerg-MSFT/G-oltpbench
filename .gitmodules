@@ -1,3 +1,6 @@
 [submodule "lib/oltpbench"]
 	path = lib/oltpbench
 	url = https://github.com/oltpbenchmark/oltpbench.git
+[submodule "lib/benchmark"]
+	path = lib/benchmark
+	url = https://github.com/cloudharmony/benchmark.git

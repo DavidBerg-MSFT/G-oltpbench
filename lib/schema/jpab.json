@@ -1,0 +1,8 @@
+[
+  {"name": "jpab_objects", "type": "int unsigned"},
+  {"name": "jpab_ratio_delete", "type": "tinyint unsigned"},
+  {"name": "jpab_ratio_persist", "type": "tinyint unsigned"},
+  {"name": "jpab_ratio_retrieve", "type": "tinyint unsigned"},
+  {"name": "jpab_ratio_update", "type": "tinyint unsigned"},
+  {"name": "jpab_test", "type": "char(12)"}
+]

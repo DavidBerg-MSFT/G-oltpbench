@@ -1,13 +1,82 @@
 OLTB Benchmark
 
-This repository provides an execution wrapper for the OLTP Benchmark Framework 
-[http://oltpbenchmark.com].
+This repository provides an execution wrapper for the open source OLTP 
+Benchmark Framework [http://oltpbenchmark.com] (included as a sub-module in
+lib/oltpbench).
 
 
 RUNTIME PARAMETERS
-Use of run.sh requires the Hadoop cluster to be provisioned and accessible to 
-the user via the 'hadoop' command. The following runtime parameters and 
-environment metadata may be specified (using run.sh arguments):
+The following runtime parameters and environment metadata may be specified 
+(using run.sh arguments):
+
+* auctionmark_customers     Number auctionmark customers - default is the max 
+                            value in --test_clients multiplied by 1000. Value 
+                            should be a multiple of 1000. Every 1000 customers 
+                            requires approximately 160MB disk space
+
+* auctionmark_ratio_get_item Get Item transaction ratio - default 45
+                            (sum of all auctionmark_ratio_* values should be 100)
+                            
+* auctionmark_ratio_get_user_info Get User Info transaction ratio - default 10
+                            (sum of all auctionmark_ratio_* values should be 100)
+                            
+* auctionmark_ratio_new_bid New Bid transaction ratio - default 20
+                            (sum of all auctionmark_ratio_* values should be 100)
+                            
+* auctionmark_ratio_new_comment New Comment transaction ratio - default 2
+                            (sum of all auctionmark_ratio_* values should be 100)
+
+* auctionmark_ratio_new_comment_response New Comment Response transaction ratio - default 1
+                            (sum of all auctionmark_ratio_* values should be 100)
+                            
+* auctionmark_ratio_new_feedback New Feedback transaction ratio - default 4
+                            (sum of all auctionmark_ratio_* values should be 100)
+
+* auctionmark_ratio_new_item New Item transaction ratio - default 10
+                            (sum of all auctionmark_ratio_* values should be 100)
+                            
+* auctionmark_ratio_new_purchase New Purchase transaction ratio - default 5
+                            (sum of all auctionmark_ratio_* values should be 100)
+
+* auctionmark_ratio_update_item Update Item transaction ratio - default 3
+                            (sum of all auctionmark_ratio_* values should be 100)
+
+* epinions_ratio_get_review_item_id Get Review by ID transaction ratio - default 10
+                            (sum of all epinions_ratio_* values should be 100)
+
+* epinions_ratio_get_reviews_user Get Reviews by User transaction ratio - default 10
+                            (sum of all epinions_ratio_* values should be 100)
+
+* epinions_ratio_get_average_rating_trusted_user Get Average Rating by Trusted 
+                            User transaction ratio - default 10
+                            (sum of all epinions_ratio_* values should be 100)
+
+* epinions_ratio_get_average_rating Get Average Rating transaction ratio - default 10
+                            (sum of all epinions_ratio_* values should be 100)
+
+* epinions_ratio_get_item_reviews_trusted_user Get Item Reviews by Trusted User 
+                            transaction ratio - default 10
+                            (sum of all epinions_ratio_* values should be 100)
+
+* epinions_ratio_update_user_name Update User Name transaction ratio - default 10
+                            (sum of all epinions_ratio_* values should be 100)
+
+* epinions_ratio_update_item_title Update Item Title transaction ratio - default 10
+                            (sum of all epinions_ratio_* values should be 100)
+
+* epinions_ratio_update_review_rating Update Review Rating transaction ratio - default 10
+                            (sum of all epinions_ratio_* values should be 100)
+
+* epinions_ratio_update_trust_rating Update Trust Rating transaction ratio - default 20
+                            (sum of all epinions_ratio_* values should be 100)
+
+* epinions_users            Number epinions users - default is the max value 
+                            in --test_clients multiplied by 20000. Value should be 
+                            a multiple of 2000. Every 2000 user requires 
+                            approximately 30MB disk space
+
+* classpath                 Any additional arguments to add to the Java 
+                            classpath
 
 * collectd_rrd              If set, collectd rrd stats will be captured from 
                             --collectd_rrd_dir. To do so, when testing starts,
@@ -21,47 +90,178 @@ environment metadata may be specified (using run.sh arguments):
 * collectd_rrd_dir          Location where collectd rrd files are stored - 
                             default is /var/lib/collectd/rrd
 
-* hadoop_conf_dir           Hadoop conf directory (see 'settings_*' output 
-                            parameters below). Default is [hadoop_home]/etc/hadoop
+* db_create                 If --db_load is, setting this flag will cause the 
+                            database to be created if it doesn't already exist.
+                            Default is true if --db_load is set
+                            
+* db_driver                 Database JDBC driver - default is 
+                            com.mysql.jdbc.Driver for mysql and 
+                            org.postgresql.Driver for postgres (required for 
+                            other database types)
 
-* hadoop_examples_jar       Path to JAR file containing TeraSort programs. 
-                            Default is [hadoop_home]/share/hadoop/mapreduce/hadoop-mapreduce-examples-2.6.0.jar
-                            
-* hadoop_heapsize           Optional explicit heap size in megabytes for the 
-                            hadoop daemon. Value is set to the HADOOP_HEAPSIZE 
-                            environment variable
-                            
-* hadoop_home               The base directory where hadoop is installed. Default 
-                            is /usr/local/hadoop. If [hadoop_home]/bin is not 
-                            already included in PATH, it will be added
+* db_dump                   if --db_type=mysql or postgres, --db_load is set, 
+                            and mysqldump/pg_dump utilities are installed, this 
+                            parameter may define the path to a database dump 
+                            file that may be used to load the database in place 
+                            of fresh load. Use of a dump file decreases load 
+                            time time substantially (e.g 10X). If this parameter 
+                            is specified but the file does not exist, the 
+                            database will be loaded using OLTP-Bench, and then 
+                            dumped to this file (may be used for subsequent test 
+                            iterations). The file name may contain the tokens 
+                            [benchmark], [subtest], [scalefactor], [db_type] 
+                            which will be replaced with the corresponding values 
+                            (e.g. /tmp/oltp-[benchmark]-[scalefactor].sql => 
+                            /tmp/oltp-tpcc-10.sql). If this parameter is a 
+                            directory, the name format 
+                            oltp-[benchmark]-[subtest]-[scalefactor]-[db_type].sql
+                            will be used
 
-* meta_compute_service      The name of the compute service this test pertains
-                            to. May also be specified using the environment 
-                            variable bm_compute_service
+* db_host                   Database hostname - default is localhost
+
+* db_isolation              Database isolation level - determines how transaction 
+                            integrity is visible - one of the following (in order 
+                            from highest to lowest):
+
+                              serializable (default) => the highest isolation 
+                                level - requires read and write locks (acquired on 
+                                selected data) to be released at the end of the 
+                                transaction
+                                
+                              repeatable_read => keep read and write locks 
+                                (acquired on selected data) until the end of the 
+                                transaction
+                              
+                              read_committed => keeps write locks (acquired on 
+                                selected data) until the end of the transaction, 
+                                but read locks are released as soon as the SELECT 
+                                operation is performed
+                              
+                              read_uncommitted => dirty reads are allowed, so 
+                                one transaction may see not-yet-committed changes 
+                                made by other transactions
+
+
+* db_load                   Whether or not to generate and load benchmark data 
+                            into the database - default is false. A load is 
+                            required at least once prior to benchmark execution
+
+* db_load_only              Whether or not to only load the data (i.e. don't 
+                            execute a benchmark)
+
+* db_name                   The database name - default is oltp_[benchmark] (
+                            string [benchmark] is replaced with database name)
+
+* db_nodrop                 Don't drop the database upon completion of testing 
+                            when --db_create and --db_load flags are also set
+
+* db_port                   Database port - if not set, explicit port designation 
+                            will not be included in the JDBC database URL (default
+                            port assumed)
+
+* db_pswd                   Database username password - default is empty string
                             
-* meta_compute_service_id   The id of the compute service this test pertains
-                            to. Added to saved results. May also be specified 
-                            using the environment variable bm_compute_service_id
+* db_type                   Database type - one of the following:
+                            
+                              mysql (DEFAULT)
+                              db2
+                              postgres
+                              oracle
+                              sqlserver
+                              sqlite
+                              hstore
+                              hsqldb
+                              h2
+                              monetdb
+                              nuodb
+                            
+                            Some OLTP-Bench behavior is database type dependent
+                            
+* db_url                    Optional explicit JDBC URL for the database (e.g. 
+                            jdbc:mysql://localhost:3306/test). If not specified, 
+                            will be set to: jdbc:[db_type]://[db_host]:[db_port]/[db_name]
+                            (for db_type=postgre, [db_type] string is postgresql)
+
+* db_user                   Database username - default: root
+
+* jpab_objects              Number of initial objects for the JPAB benchmark.
+                            Default is the max value in --test_clients multiplied 
+                            by 100,000. Value should be a multiple of 100,000. 
+                            Database size is dependent on test execution time - 
+                            about 10MB per minute
+
+* jpab_ratio_delete         Delete transaction ratio - default 25
+                            (sum of all jpab_ratio_* values should be 100)
+
+* jpab_ratio_persist        Persist transaction ratio - default 25
+                            (sum of all jpab_ratio_* values should be 100)
+
+* jpab_ratio_retrieve       Retrieve transaction ratio - default 25
+                            (sum of all jpab_ratio_* values should be 100)
+
+* jpab_ratio_update         Update transaction ratio - default 25
+                            (sum of all jpab_ratio_* values should be 100)
+
+* jpab_test                 JPAB benchmark subtests to perform. More information 
+                            about each test available at
+                            http://www.jpab.org/Test_Description.html
+                            This parameter must be one of the following 
+                            (multiple ok):
+
+                              all: Include all JPAB sub-tests
+
+                              basic (DEFAULT): Basic Person Test => uses JPA 
+                                with one entity class that represents a person
+                            
+                              collection: Element Collection Test => like basic
+                                test but instead of a simple String field for 
+                                phone number, a List<String> collection field 
+                                containing 1-3 phone numbers used. This change
+                                has a larger effect on the ORM/DBMS side 
+                                because of the flat nature of records in 
+                                ordinary RDBMS tables
+                            
+                              inheritance: Inheritance Test => like basic
+                                test but instead of one Person entity class, 
+                                an hierarchy of 3 classes is used
+                            
+                              indexing: Indexing Test => like basic
+                                test but with the addition of an index for the 
+                                person's last name
+                            
+                              graph: Graph (Binary Tree) Test => uses JPA with 
+                                a different object model that represents a 
+                                binary tree
+
+* meta_compute_service      The name of the compute service the testing is 
+                            performed on. May also be specified using the 
+                            environment variable bm_compute_service
+                            
+* meta_compute_service_id   The id of the compute service the testing is 
+                            performed on. Added to saved results. May also be 
+                            specified using the environment variable 
+                            bm_compute_service_id
                             
 * meta_cpu                  CPU descriptor - if not specified, it will be set 
                             using the 'model name' attribute in /proc/cpuinfo
+
+* meta_db_service           The name of the database service being tested. May 
+                            also be specified using the environment variable 
+                            bm_service
+
+* meta_db_service_id        The id of the database service being tested. May 
+                            also be specified using the environment variable 
+                            bm_service_id
+
+* meta_db_service_config    Database service configuration identifier
                             
-* meta_instance_id          The compute service instance type this test pertains 
-                            to (e.g. c3.xlarge). May also be specified using 
-                            the environment variable bm_instance_id
-                            
-* meta_map_reduce_version   The map reduce version in place on the Hadoop 
-                            cluster. Default is 2. Options are 1 or 2
+* meta_instance_id          The compute service instance type the testing is
+                            performed on (e.g. c3.xlarge). May also be 
+                            specified using the environment variable 
+                            bm_instance_id
                             
 * meta_memory               Memory descriptor - if not specified, the system
                             memory size will be used
-                            
-* meta_hdfs_nodes           Number of data nodes in the HDFS cluster. If not 
-                            specified, an attempt to determine this value will 
-                            be tried using 'hdfs dfsadmin -report'. However, 
-                            only the 'hdfs' user has access to this information 
-                            using that command and if not accessible, the value 
-                            of this parameter defaults to 1
                             
 * meta_os                   Operating system descriptor - if not specified, 
                             it will be taken from the first line of /etc/issue
@@ -74,7 +274,7 @@ environment metadata may be specified (using run.sh arguments):
                             to. May also be specified using the environment 
                             variable bm_provider_id
                             
-* meta_region               The compute service region this test pertains to. 
+* meta_region               The database service region this test pertains to. 
                             May also be specified using the environment 
                             variable bm_region
                             
@@ -82,99 +282,454 @@ environment metadata may be specified (using run.sh arguments):
                             also be specified using the environment variable 
                             bm_resource_id
                             
-* meta_run_id               An optional benchmark run identifiers. May also be 
+* meta_run_id               An optional benchmark run identifier. May also be 
                             specified using the environment variable bm_run_id
+                            
+* meta_run_group_id         An optional benchmark group run identifier. May 
+                            also be specified using the environment variable 
+                            bm_run_group_id
                             
 * meta_storage_config       Storage configuration descriptor. May also be 
                             specified using the environment variable 
                             bm_storage_config
                             
-* meta_storage_volumes      Number of storage volumes attached to each HDFS 
-                            node
-                            
-* meta_storage_volume_size  Size of each storage volume in GB
-                            
 * meta_test_id              Identifier for the test. May also be specified 
                             using the environment variable bm_test_id
-                            
-* no_purge                  If set, 'teragen_dir', 'terasort_dir' and 
-                            'teravalidate_dir' will not be deleted upon test 
-                            completion
+
+* nopdfreport               Don't generate PDF version of test report - 
+                            report.pdf. (wkhtmltopdf dependency removed if 
+                            specified)
+
+* noreport                  Don't generate html or PDF test reports - 
+                            report.zip and report.pdf (gnuplot, wkhtmltopdf and
+                            zip dependencies removed if specified)
                             
 * output                    The output directory to use for writing test data 
                             (logs and artifacts). If not specified, the current 
-                            working directory will be used
+                            working directory will be used 
+
+* resourcestresser_ratio_cpu1 CPU 1 operation ratio - default 17
+                            (sum of all resourcestresser_ratio_* values should be 100)
+
+* resourcestresser_ratio_cpu2 CPU 2 operation ratio - default 17
+                            (sum of all resourcestresser_ratio_* values should be 100)
+
+* resourcestresser_ratio_io1 IO 1 operation ratio - default 17
+                            (sum of all resourcestresser_ratio_* values should be 100)
+
+* resourcestresser_ratio_io2 IO 2 operation ratio - default 17
+                            (sum of all resourcestresser_ratio_* values should be 100)
+
+* resourcestresser_ratio_contention1 Contention 1 operation ratio - default 16
+                            (sum of all resourcestresser_ratio_* values should be 100)
+
+* resourcestresser_ratio_contention2 Contention 2 operation ratio - default 16
+                            (sum of all resourcestresser_ratio_* values should be 100)
+
+* seats_customers           Number seats customers - default is the max value in 
+                            --test_clients multiplied by 100 (minimum 1000). Value 
+                            should be a multiple of 1000. Every 1000 customers 
+                            requires approximately 180MB disk space
+
+* seats_ratio_delete_reservation Delete Reservation transaction ratio - default 10
+                            (sum of all seats_ratio_* values should be 100)
+
+* seats_ratio_find_flights  Find Flights transaction ratio - default 10
+                            (sum of all seats_ratio_* values should be 100)
+
+* seats_ratio_find_open_seats Find Open Seats transaction ratio - default 35
+                            (sum of all seats_ratio_* values should be 100)
+
+* seats_ratio_new_reservation New Reservation transaction ratio - default 20
+                            (sum of all seats_ratio_* values should be 100)
+
+* seats_ratio_update_customer Update Customer transaction ratio - default 10
+                            (sum of all seats_ratio_* values should be 100)
+
+* seats_ratio_update_reservation Update Reservation transaction ratio - default 15
+                            (sum of all seats_ratio_* values should be 100)
                             
-* tera_args                 Optional -D arguments for teragen, terasort and 
-                            teravalidate - multiple OK
-                            e.g. "dfs.block.size=134217728". Any of the *_args
-                            parameters may contain the following tokens:
-                              {cpus} : number of CPU cores on the host
-                              {nodes}: number of nodes in the hdfs cluster
-                                       (per meta_hdfs_nodes)
-                              {rows}:  number of rows (teragen_rows)
-                              {gb}:    size of rows in GB
-                            Additionally, values may be an expression:
-                              e.g. mapred.map.tasks={cpus}*{nodes}
-                            or a ternary expression - reduce jobs are 64GB but 
-                            at least equal to the number of cluster nodes:
-                              e.g. mapreduce.job.reduces={nodes}>({gb}/64)?{nodes}:({gb}/64)
+* steady_state_threshold    Steady state threshold percentage - steady state 
+                            will be considered to be achieved when the 
+                            relative population standard deviation for 
+                            consecutive measurements taken within 
+                            'steady_state_window' is less than or equal to 
+                            this value. Default is 5 (5% or less)
                             
-* teragen_args              Optional -D arguments for teragen - multiple OK
-                            e.g. "dfs.block.size=134217728"
+* steady_state_window       The consecutive time window (minutes) used for 
+                            steady state determination. For steady state to be 
+                            achieved, the relative population standard 
+                            deviation for throughput measurements taken within 
+                            this window must be less than or equal to 
+                            'steady_state_threshold'. Default is 3 (3 minutes)
+                            unless the max test time is < 3 minutes in which 
+                            case it is set to the max test time
+
+* tatp_ratio_delete_call_forwarding Delete Call Forwarding transaction ratio - default 2
+                            (sum of all tatp_ratio_* values should be 100)
+
+* tatp_ratio_get_access_data Get Access Data transaction ratio - default 35
+                            (sum of all tatp_ratio_* values should be 100)
+
+* tatp_ratio_get_new_destination Get New Destination transaction ratio - default 10
+                            (sum of all tatp_ratio_* values should be 100)
+
+* tatp_ratio_get_subscriber_data Get Subscriber Data transaction ratio - default 35
+                            (sum of all tatp_ratio_* values should be 100)
+
+* tatp_ratio_insert_call_forwarding Insert Call Forwarding transaction ratio - default 2
+                            (sum of all tatp_ratio_* values should be 100)
+
+* tatp_ratio_update_location Update Location transaction ratio - default 14
+                            (sum of all tatp_ratio_* values should be 100)
+
+* tatp_ratio_update_subscriber_data Update Subscriber Data transaction ratio - default 2
+                            (sum of all tatp_ratio_* values should be 100)
+
+* tatp_subscribers          Number of TATP subscribers - default is the max value in 
+                            --test_clients multiplied by 10. Value should be a 
+                            multiple of 10. Each subscriber requires 
+                            approximately 95MB disk space
+
+* test                      The OLTB-Bench benchmark test to perform. Benchmark 
+                            specific configurations are set using the 
+                            [benchmark]_* parameters. The following benchmarks 
+                            are supported - this parameter may be repeated for 
+                            multiple benchmark tests (see 
+                            http://oltpbenchmark.com/wiki/index.php?title=Workloads 
+                            for more details about each workload):
+
+                              all: Perform all benchmarks listed below
+                            
+                              auctionmark: AuctionMark is an OLTP benchmark 
+                                that models the workload characteristics of an 
+                                on-line auction site [5]. It consists of 10 
+                                transactions, one of which is executed at a 
+                                regular interval to process recently ended 
+                                auctions
+                                
+                              epinions: This benchmark is derived from the 
+                                Epinions.com consumer review website. It uses 
+                                data collected from a previous study together 
+                                with additional statistics extracted from the 
+                                website. This workload is centered around users 
+                                interacting with other users and writing reviews 
+                                for various items (products) in the database
+                                
+                              jpab: This workload uses Java Persistence API 
+                                Performance Benchmark (JPAB). It represents a 
+                                large class of enterprise applications with 
+                                several properties unique to ORMs. For example, 
+                                many ORM implementations generate unoptimized 
+                                bursts of small reads in order to chase object 
+                                pointers. This workload can be used to test 
+                                various improvements in both the application 
+                                and DBMS-level for this type of application. 
+                                More details about this benchmark available at
+                                http://www.jpab.org
+                                NOTE: edit the file lib/persistence-template.xml 
+                                to use a JPA provider other than hybernate
+                                
+                              resourcestresser: In contrast to other benchmarks 
+                                that emulate existing systems or common 
+                                application patterns, Resource Stresser was 
+                                developed as a purely synthetic benchmark to 
+                                impose isolated contention on system resources. 
+                                It is useful to stress test different aspects 
+                                of a DBMS independently. This test does not 
+                                produce any metrics
+                                
+                              seats: The SEATS benchmark models an airline 
+                                ticketing system where customers search for 
+                                flights and make online reservations. It 
+                                consists of eight tables and six transaction 
+                                types
+                                
+                              tatp: The TATP benchmark is an OLTP application 
+                                that simulates a typical caller location system 
+                                used by telcom providers. It consists of four 
+                                tables, three of which are foreign key 
+                                descendants of the root SUBSCRIBER table. All 
+                                seven of procedures in TATP reference tuples 
+                                using either SUBSCRIBERs primary key or a 
+                                separate unique identification string
+
+                              tpcc (DEFAULT): The TPCC benchmark is the current 
+                                industry standard for evaluating the performance 
+                                of OLTP systems [2]. It consists of nine tables 
+                                and five procedures that simulate a 
+                                warehouse-centric order processing application
+                                
+                              twitter: The Twitter workload is inspired by the 
+                               popular micro-blogging website. To provide a 
+                               realistic benchmark, OLTB-Bench developers 
+                               obtained an anonymized snapshot of the Twitter 
+                               social graph from August 2009 with 51 million 
+                               users and 2 billion follows relationships. They 
+                               then created a synthetic workload generator 
+                               based on an approximation of queries and 
+                               transactions necessary for Twitter functionality
+                            
+                              wikipedia: Workload based on the popular online 
+                                encyclopedia. Uses the actual schema, 
+                                transactions and queries from wikipedia. The 
+                                benchmark workload is derived from (1) data 
+                                dumps, (2) statistical information on the 
+                                read/write ratios, and (3) front-end access 
+                                patterns based on several personal email 
+                                communications with Wikipedia administrators
+                                
+                              ycsb: Yahoo! Cloud Serving Benchmark (YCSB) - a 
+                                collection of micro-benchmarks that represent 
+                                data management applications whose workload is 
+                                simple but requires high scalability. Although 
+                                these services are often deployed using 
+                                distributed key/value storage systems, this 
+                                benchmark can also provide insight into the 
+                                capabilities of a traditional DBMS
+
+* test_clients              Number of concurrent test client threads (per 
+                            test_process). This is also referred to as terminals 
+                            by OLTP-Bench - default is the number of CPU cores. 
+                            A range or multiple values may be specified in the 
+                            format [start]-[stop] or [value1],[value2]...
+
+* test_clients_step         If --test_clients is a range (e.g 10-100), this 
+                            parameter may define a step size. For example, if 
+                            --test_clients=10-100 and --test_clients_step=10, 
+                            testing will be performed using 10, 20, 30...100
+                            clients. If not set, and test_clients is a range, 
+                            then the step will be from the first to second value
+                            only (e.g. 10 and 100 clients)
+
+* test_idle                 If set, tests will not be executed. Instead, the 
+                            a sleep period will be invoked for each designated 
+                            test. This parameter may be used if testing is being
+                            driven from an outside source and stats collection 
+                            is desired (see --collectd_rrd)
+
+* test_processes            Number of concurrent benchmark processes to execute
+                            Each process will consist 'concurrent_clients' 
+                            threads. Results are aggregated from all processes 
+                            upon completion of testing. Default is 1. 
+
+                            Each process is associated to a single CPU which 
+                            may be insufficient to fully saturate the RDBMS. By 
+                            settings processes > 1, additional CPUs will be 
+                            utilized to increase concurrency and place more 
+                            load on the database. 
+
+                            This parameter may be an expression using the token 
+                            [cpus] which will be replaced with the number of 
+                            cpu cores. For example:
+                              --test_processes="[cpus]*2"
+
+* test_rate                 Desired test throughput rate per process - either 
+                            a numeric value (e.g. 300) or 'unlimited' for no 
+                            rate limiting (default). When unlimited, the 
+                            OLTP-Bench rate is set to an arbitrarily high value.
+                            A range or multiple values may be specified in the
+                            format [start]-[stop] or [value1],[value2]...
+
+* test_rate_step            If --test_rate is a range (e.g 100-1000), this 
+                            parameter may define a step size. For example, if 
+                            --test_rate=100-1000 and --test_rate_step=100, 
+                            testing will be performed using a range of 100, 
+                            200, 300...1000. If not set, and test_rate is a 
+                            range, then the step will be from the first to 
+                            second value only (e.g. rate = 100 and 1000)
+
+* test_sample_interval      The test measurement interval in seconds - metrics
+                            will be recording throughput testing at this 
+                            frequency. Default is 5
+                            
+* test_size                 Optional parameter designating a size for dynamic 
+                            calculation of the 8 parameters below. This value 
+                            may be a size designation (e.g. 300MB, 4GB, 1024KB)
+                            or a directory/device path. For the latter, the 
+                            free space associated with that path will be used.
+                            The values for the 8 parameters below will then be
+                            calculated based on the value/space designations 
+                            below (does not apply to jpab or resourcestresser
+                            tests):
+                            
+                              auctionmark_customers => Every 1000 customers 
+                                requires approximately 160MB disk space
                               
-* teragen_balance           when set, the hdfs cluster will be balanced 
-                            to this threshold following execution of teragen 
-                            (sudo -u hdfs hdfs balancer -threshold [teragen_balance])
-                            User must have sudo privilege. The balance 
-                            operation can be very slow - increase the 
-                            hdfs-site.xml property 
-                            dfs.datanode.balance.bandwidthPerSec from the 
-                            default 8 Mb/s (1048576) something higher to 
-                            increase balancing speed. Value should be between
-                            3 and 50
+                              epinions_users => Every 2000 user requires 
+                                approximately 30MB disk space
+                              
+                              seats_customers => Every 1000 customers requires 
+                                approximately 180MB disk space
+                              
+                              tatp_subscribers => Each subscriber requires 
+                                approximately 95MB disk space
+                              
+                              tpcc_warehouses => Each warehouse requires 
+                                approximately 110MB disk space
+                              
+                              twitter_users => Every 1000 users requires 
+                                approximately 8MB disk space
+                              
+                              wikipedia_pages => Every 1000 pages requires 
+                                approximately 300MB disk space
+                              
+                              ycsb_user_rows => Every 1000 rows requires 
+                                approximately 4MB disk space
+
+* test_size_ratio           If 'test_size' is set, this parameter may be used
+                            to designate a percentage of that value to use for
+                            in calculations for the dynamic parameters. Default 
+                            is 100 if test_size is a size value, 90 if 
+                            test_size is a volume or directory. This parameter 
+                            may be useful in the case where test_size is a 
+                            directory or volume, but a free space buffer is 
+                            desired
+
+* test_time                 The test duration in seconds - default is 60. A 
+                            range or multiple values may be specified in the 
+                            format [start]-[stop] or [value1],[value2]...
+
+* test_time_step            If --test_time is a range (e.g 60-300), this 
+                            parameter may define a step size. For example, if 
+                            --test_time=60-300 and --test_time_step=60, 
+                            testing will be performed using test times 60, 
+                            120, 180...300. If not set, and test_time is a 
+                            range, then the step will be from the first to 
+                            second value only (e.g. time = 60 and 300)
+
+* test_warmup               If set, testing will begin with 1 warmup round
+                            the results of which will be excluded from test 
+                            metrics. The warmup clients, rate and time will 
+                            be based on the first value specified for those
+                            parameters
                             
-* teragen_dir               hdfs directory where teragen input should be 
-                            written to - if it already exists, it will be 
-                            deleted prior to testing. Default is 
-                            'terasort-input'
+* tpcc_ratio_delivery       Delivery transaction ratio - default 4
+                            (sum of all tpcc_ratio_* values should be 100)
                             
-* teragen_rows              Number of 100 byte rows to generate - default is 
-                            10 billion == 1 TB. This parameter will be 
-                            validated against the available HDFS capacity 
-                            prior to test execution
+* tpcc_ratio_new_order      New Order transaction ratio - default 45
+                            (sum of all tpcc_ratio_* values should be 100)
                             
-* terasort_args             Optional -D arguments for terasort - multiple OK
-                            e.g. "mapred.map.tasks=4"
+* tpcc_ratio_order_status   Order Status transaction ratio - default 4
+                            (sum of all tpcc_ratio_* values should be 100)
                             
-* terasort_dir              hdfs directory where terasort output should be 
-                            written to - if it already exists, it will be 
-                            deleted prior to testing. Default is 
-                            'terasort-output'
+* tpcc_ratio_payment        Payments transaction ratio - default 43
+                            (sum of all tpcc_ratio_* values should be 100)
                             
-* teravalidate_args         Optional -D arguments for teravalidate - multiple 
-                            OK
+* tpcc_ratio_stock_level    Stock Level transaction ratio - default 4
+                            (sum of all tpcc_ratio_* values should be 100)
                             
-* teravalidate_dir          hdfs directory where teravalidate output should be 
-                            written to - if it already exists, it will be 
-                            deleted prior to testing. Default is 
-                            'terasort-validate'
+* tpcc_warehouses           Number of TPC-C database warehouses - default is 
+                            the max value in --test_clients (warehouses cannot 
+                            be less than that value). Each warehouse requires
+                            approximately 110MB disk space
+
+* twitter_ratio_get_tweet   Get Tweet transaction ratio - default 0.07
+                            (sum of all twitter_ratio_* values should be 100)
+
+* twitter_ratio_get_tweet_following Get Tweet from Follow transaction ratio - default 0.07
+                            (sum of all twitter_ratio_* values should be 100)
+
+* twitter_ratio_get_followers Get Followers transaction ratio - default 7.6725
+                            (sum of all twitter_ratio_* values should be 100)
+
+* twitter_ratio_get_user_tweets Get User Tweets transaction ratio - default 91.2656
+                            (sum of all twitter_ratio_* values should be 100)
+
+* twitter_ratio_insert_tweet Insert Tweet transaction ratio - default 0.9219
+                            (sum of all twitter_ratio_* values should be 100)
+
+* twitter_users             Number Twitter users - default is the max value in 
+                            --test_clients multiplied by 500. Value should be a 
+                            multiple of 500. Every 1000 users requires 
+                            approximately 8MB disk space
                             
 * verbose                   Show verbose output
-                            
-                            
+
+* wikipedia_pages           Number Wikipedia pages - default is the max value in 
+                            --test_clients multiplied by 1000. Value should be a 
+                            multiple of 1000. Every 1000 pages requires 
+                            approximately 300MB disk space
+
+* wikipedia_ratio_add_watch_list Add Watch List transaction ratio - default 0.07
+                            (sum of all wikipedia_ratio_* values should be 100)
+
+* wikipedia_ratio_remove_watch_list Remove Watch List transaction ratio - default 0.07
+                            (sum of all wikipedia_ratio_* values should be 100)
+
+* wikipedia_ratio_update_page Update Page transaction ratio - default 7.6725
+                            (sum of all wikipedia_ratio_* values should be 100)
+
+* wikipedia_ratio_get_page_anonymous Get Page Anonymous transaction ratio - default 91.2656
+                            (sum of all wikipedia_ratio_* values should be 100)
+
+* wikipedia_ratio_get_page_authenticated Get Page Authenticated transaction ratio - default 0.9219
+                            (sum of all wikipedia_ratio_* values should be 100)
+
+* ycsb_ratio_read           Read Record transaction ratio - default 50
+                            (sum of all ycsb_ratio_* values should be 100)
+
+* ycsb_ratio_insert         Insert Record transaction ratio - default 50
+                            (sum of all ycsb_ratio_* values should be 100)
+
+* ycsb_ratio_scan           Scan Record transaction ratio - default 0
+                            (sum of all ycsb_ratio_* values should be 100)
+
+* ycsb_ratio_update         Update Record transaction ratio - default 0
+                            (sum of all ycsb_ratio_* values should be 100)
+
+* ycsb_ratio_delete         Delete Record transaction ratio - default 0
+                            (sum of all ycsb_ratio_* values should be 100)
+
+* ycsb_ratio_read_modify_write Read, Modify, Write Record transaction ratio - default 0
+                            (sum of all ycsb_ratio_* values should be 100)
+
+* ycsb_user_rows            Number rows in the USERTABLE - default is the max value in 
+                            --test_clients multiplied by 10000. Value should be a 
+                            multiple of 1000. Every 1000 rows requires 
+                            approximately 4MB disk space
+
+
+STEP NOTE
+If multiple values or ranges are specified for test_clients, test_rate or 
+test_time, and the number of values are not equal, then the parameters with
+shorter lists of values will recycle back to the first and testing will 
+continue util completion of the longest list. For example with the following
+parameters:
+
+--test_clients=10-50 --test_clients_step=10 --test_rate=100,200,300 --test_time=60
+
+Test iterations would consist of:
+
+1 => test_clients=10; test_rate=100; test_time=60
+2 => test_clients=20; test_rate=200; test_time=60
+3 => test_clients=30; test_rate=300; test_time=60
+4 => test_clients=40; test_rate=100; test_time=60
+5 => test_clients=50; test_rate=200; test_time=60
+
+This sequence of tests would result in 5 separate database records
+
+
 DEPENDENCIES
 This benchmark has the following dependencies:
-
-  hadoop      Hadoop command - cluster should be provisioned and enabled for 
-              the current user invoking run.sh
-              
-  hdfs        Used to interact with hdfs
   
-  java        Java JDK
+  ant         Required if lib/oltpbench has not been built (build will be attempted when run)
+  
+  gnuplot     Generates report graphs (required unless --noreport set)
+
+  java        OLTB-Bench is a Java application
+
+  mysql       Required if database type is mysql and --db_dump_file specified
+  mysqldump   
 
   php         Test automation scripts (/usr/bin/php)
+
+  psql        Required if database type is postgres and --db_dump_file specified
+  pg_dump
   
+  wkhtmltopdf Generates PDF version of report - download from 
+              http://wkhtmltopdf.org (required unless --nopdfreport set)
+
   zip         Used to compress test artifacts
   
   
@@ -183,39 +738,66 @@ This benchmark generates the following artifacts:
 
 collectd-rrd.zip   collectd RRD files (see --collectd_rrd)
 
-terasort-conf.zip  Compressed XML configuration files for teragen, terasort 
-                   and teravalidate (teragen.xml, terasort.xml and 
-                   teravalidate.xml)
+oltp-bench.zip     Archive containing all OLTP-Bench test output files include:
+                   [oltp benchmark]-i[iteration #]-p[process #]-c[client #]-s[step].[ben.cnf|db.cnf|err|out|raw|res|summary]
+                    db.cnf:  RDBMS settings
+                    err:     stderr
+                    out:     stdout
+                    raw:     raw test results (entries for every test client in this process)
+                    res:     results per test_sample_interval (aggregated for all test clients)
+                    summary: summarized results
+                   [oltp benchmark].xml => OLTP-Bench configuration file
+                   [oltp benchmark].sh => Master test execution script
+                   [oltp benchmark]-persistence.xml => JPA persistence configuration files (JPAB benchmark only)
 
-terasort-logs.zip  Compressed stdout, stderr and log files for teragen, 
-                   terasort and teravalidate (teragen.out, teragen.log, 
-                   terasort.out, terasort.log, teravalidate.out, 
-                   teravalidate.log)
+report.zip         HTML test report (open index.html) including graphs. Graphs 
+                   are rendered in svg format
+
+report.pdf         PDF version of the test report (wkhtmltopdf used to 
+                   generate this version of the report)
 
 
 SAVE SCHEMA
 The following columns are included in CSV files/tables generated by save.sh. 
 Indexed MySQL/PostgreSQL columns are identified by *. Columns without 
 descriptions are documented as runtime parameters above. Data types and 
-indexing used is documented in save/schema/terasort.json. Columns can be
-removed using the save.sh --remove parameter
+indexing used is documented in schema/common.json. Columns can be removed using 
+the save.sh --remove parameter
 
+COMMON COLUMNS
 benchmark_version: [benchmark version]
-collectd_rrd: [URL to zip file containing collectd rrd files]
-compression: [true if compression used (i.e. mapreduce.map.output.compress)]
-compression_codec: [intermediate compression codec class name - if used (i.e. mapreduce.map.output.compress.codec)]
-hadoop_heapsize
-hadoop_version: [Hadoop version]
-iteration: [iteration number (used with incremental result directories)]
+collectd_rrd: [URL to zip file containing collectd rrd files (if --store option used)]
+db_driver
+db_isolation
+db_type
+iteration*: [iteration number (used with incremental result directories)]
 java_version: [version of java present]
+latency: [mean latency - ms]
+latency_10: [10th percentile latency - ms]
+latency_20: [20th percentile latency - ms]
+latency_30: [30th percentile latency - ms]
+latency_40: [40th percentile latency - ms]
+latency_50: [50th percentile latency (median) - ms]
+latency_60: [60th percentile latency - ms]
+latency_70: [70th percentile latency - ms]
+latency_80: [80th percentile latency - ms]
+latency_90: [90th percentile latency - ms]
+latency_95: [95th percentile latency - ms]
+latency_99: [99th percentile latency - ms]
+latency_at_max: [latency at max throghput - ms]
+latency_max: [max latency - ms]
+latency_min: [min latency - ms]
+latency_stdev: [latency standard deviation]
 meta_compute_service
 meta_compute_service_id*
 meta_cpu: [CPU model info]
 meta_cpu_cache: [CPU cache]
 meta_cpu_cores: [# of CPU cores]
 meta_cpu_speed: [CPU clock speed (MHz)]
+meta_db_service
+meta_db_service_id*
+meta_db_service_config*
 meta_instance_id*
-meta_hdfs_nodes
 meta_hostname: [system under test (SUT) hostname]
 meta_memory
 meta_memory_gb: [memory in gigabytes]
@@ -226,64 +808,149 @@ meta_provider_id*
 meta_region*
 meta_resource_id
 meta_run_id
+meta_run_group_id
 meta_storage_config*
-meta_storage_volumes
-meta_storage_volume_size
 meta_test_id*
-purge_dirs
-settings_core: [JSON string representing settings in core-site.xml]
-settings_hdfs: [JSON string representing settings in hdfs-site.xml]
-settings_mapred: [JSON string representing settings in mapred-site.xml]
-settings_yarn: [JSON string representing settings in yarn-site.xml]
-tera_args: [JSON]
-teragen_args: [JSON]
-teragen_balance
-teragen_blocksize: [TeraGen block size setting in MB]
-teragen_cmd: [TeraGen runtime command - including teragen_args]
-teragen_dir
-teragen_failed: [1 if teragen failed]
-teragen_gbs: [GB/s writeen during teragen]
-teragen_map_tasks: [# of TeraGen map task]
-teragen_reduce_tasks: [# of TeraGen map task]
-teragen_replication: [replication factor for teragen]
-teragen_rows
-teragen_time: [Total run duration of TeraGen in seconds]
-terasort_args: [JSON]
-terasort_blocksize: [TeraSort block size setting in MB]
-terasort_cmd: [TeraSort runtime command - including terasort_args]
-terasort_conf: [URL to terasort-conf.zip (if --store option used)]
-terasort_dir
-terasort_failed: [1 if terasort failed]
-terasort_gbs: [GB/s processed during terasort]
-terasort_logs: [URL to terasort-logs.zip (if --store option used)]
-terasort_map_tasks: [# of TeraSort map task]
-terasort_map_time: [duration of the terasort map phase]
-terasort_reduce_p1: [seconds in reduce shuffle phase (0-33%)]
-terasort_reduce_p2: [seconds in reduce sort phase (34-66%)]
-terasort_reduce_p3: [seconds in reduce phase (67-100%)]
-terasort_reduce_tasks: [# of TeraSort map task]
-terasort_replication: [replication factor for terasort]
-terasort_time: [Total run duration of TeraSort in seconds]
-teravalidate_args: [JSON]
-teravalidate_blocksize: [TeraValidate block size setting in MB]
-teravalidate_cmd: [TeraValidate runtime command - including teravalidate_args]
-teravalidate_dir
-teravalidate_failed: [1 if teravalidate failed]
-terasort_replication: [replication factor for teravalidate]
-teravalidate_time: [Total run duration of TeraValidate in seconds]
-test_started*: [when the test started]
+oltp_benchmark
+oltp_files: [URL to OLTP-Bench output files (if --store option used)]
+report_pdf: [URL to report PDF file (if --store option used)]
+report_zip: [URL to report ZIP file (if --store option used)]
+steady_state: [duration (seconds) before steady state achieve (see steady_state_threshold and steady_state_window above)]
+step*: [test step - see STEP NOTE above]
+step_started*: [when the step started]
+step_stopped: [when the step ended]
+test
+test_clients: [test clients for this step]
+test_processes
+test_rate: [test rate for this step - null if not set (max possible)]
+test_rate_time: [duration in seconds for this step before test_rate stability was achieved - unset if not reached]
+test_size
+test_size_ratio
+test_started: [when the test started]
 test_stopped: [when the test ended]
+test_time: [test time for this step]
+throughput: [mean throughput - req/sec]
+throughput_10: [10th percentile throughput - req/sec]
+throughput_20: [20th percentile throughput - req/sec]
+throughput_30: [30th percentile throughput - req/sec]
+throughput_40: [40th percentile throughput - req/sec]
+throughput_50: [50th percentile throughput (median) - req/sec]
+throughput_60: [60th percentile throughput - req/sec]
+throughput_70: [70th percentile throughput - req/sec]
+throughput_80: [80th percentile throughput - req/sec]
+throughput_90: [90th percentile throughput - req/sec]
+throughput_95: [95th percentile throughput - req/sec]
+throughput_99: [99th percentile throughput - req/sec]
+throughput_max: [max throughput - req/sec]
+throughput_min: [min throughput - req/sec]
+throughput_stdev: [throughput standard deviation]
+
+
+AUCTIONMARK COLUMNS
+auctionmark_customers
+auctionmark_ratio_get_item
+auctionmark_ratio_get_user_info
+auctionmark_ratio_new_bid
+auctionmark_ratio_new_comment
+auctionmark_ratio_new_comment_response
+auctionmark_ratio_new_feedback
+auctionmark_ratio_new_item
+auctionmark_ratio_new_purchase
+auctionmark_ratio_update_item
+
+
+EPINIONS COLUMNS
+epinions_ratio_get_review_item_id
+epinions_ratio_get_reviews_user
+epinions_ratio_get_average_rating_trusted_user
+epinions_ratio_get_average_rating
+epinions_ratio_get_item_reviews_trusted_user
+epinions_ratio_update_user_name
+epinions_ratio_update_item_title
+epinions_ratio_update_review_rating
+epinions_ratio_update_trust_rating
+epinions_users
+
+
+JPAB COLUMNS
+jpab_objects
+jpab_ratio_delete
+jpab_ratio_persist
+jpab_ratio_retrieve
+jpab_ratio_update
+jpab_test
+
+
+RESOURCE STRESSER COLUMNS
+resourcestresser_ratio_cpu1
+resourcestresser_ratio_cpu2
+resourcestresser_ratio_io1
+resourcestresser_ratio_io2
+resourcestresser_ratio_contention1
+resourcestresser_ratio_contention2
+
+
+SEATS COLUMNS
+seats_customers
+seats_ratio_delete_reservation
+seats_ratio_find_flights
+seats_ratio_find_open_seats
+seats_ratio_new_reservation
+seats_ratio_update_customer
+seats_ratio_update_reservation
+
+
+TATP COLUMNS
+tatp_ratio_delete_call_forwarding
+tatp_ratio_get_access_data
+tatp_ratio_get_new_destination
+tatp_ratio_get_subscriber_data
+tatp_ratio_insert_call_forwarding
+tatp_ratio_update_location
+tatp_ratio_update_subscriber_data
+tatp_subscribers
+
+
+TPCC COLUMNS
+tpcc_ratio_delivery
+tpcc_ratio_new_order
+tpcc_ratio_order_status
+tpcc_ratio_payment
+tpcc_ratio_stock_level
+tpcc_warehouses
+
+
+TWITTER COLUMNS
+twitter_ratio_get_tweet
+twitter_ratio_get_tweet_following
+twitter_ratio_get_followers
+twitter_ratio_get_user_tweets
+twitter_ratio_insert_tweet
+twitter_users
+
+
+WIKIPEDIA COLUMNS
+wikipedia_pages
+wikipedia_ratio_add_watch_list
+wikipedia_ratio_remove_watch_list
+wikipedia_ratio_update_page
+wikipedia_ratio_get_page_anonymous
+wikipedia_ratio_get_page_authenticated
+
+
+YCSB COLUMNS
+ycsb_ratio_read
+ycsb_ratio_insert
+ycsb_ratio_scan
+ycsb_ratio_update
+ycsb_ratio_delete
+ycsb_ratio_read_modify_write
+ycsb_user_rows
 
 
 USAGE
 # run 1 test iteration with some metadata
-./run.sh --meta_compute_service_id aws:ec2 --meta_instance_id c3.xlarge --meta_region us-east-1 --meta_test_id aws-1214
-
-# run with explicit hadoop_examples_jar
-./run.sh --hadoop_examples_jar /usr/lib/hadoop-0.20-mapreduce/hadoop-examples.jar
-
-# run 3 test iterations using a specific output directory
-for i in {1..3}; do mkdir -p ~/terasort-testing/$i; ./run.sh --output ~/terasort-testing/$i; done
+./run.sh --meta_compute_service_id aws:ec2 --meta_instance_id c3.xlarge --meta_region us-east-1 --meta_test_id aws-0315
 
 
 # save.sh saves results to CSV, MySQL, PostgreSQL, BigQuery or via HTTP 
@@ -294,12 +961,11 @@ for i in {1..3}; do mkdir -p ~/terasort-testing/$i; ./run.sh --output ~/terasort
 ./save.sh
 
 # save results from 3 iterations text example above
-./save.sh ~/terasort-testing
+./save.sh ~/oltp-testing
 
 # save results to a PostgreSQL database
 ./save --db postgresql --db_user dbuser --db_pswd dbpass --db_host db.mydomain.com --db_name benchmarks
 
-# save results to BigQuery and artifact (TRIAD gnuplot PNG image) to S3
+# save results to BigQuery and artifacts to S3
 ./save --db bigquery --db_name benchmark_dataset --store s3 --store_key THISIH5TPISAEZIJFAKE --store_secret thisNoat1VCITCGggisOaJl3pxKmGu2HMKxxfake --store_container benchmarks1234
-
 

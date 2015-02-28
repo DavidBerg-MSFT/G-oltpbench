@@ -1,0 +1,8 @@
+[
+  {"name": "twitter_ratio_get_tweet", "type": "float unsigned"},
+  {"name": "twitter_ratio_get_tweet_following", "type": "float unsigned"},
+  {"name": "twitter_ratio_get_followers", "type": "float unsigned"},
+  {"name": "twitter_ratio_get_user_tweets", "type": "float unsigned"},
+  {"name": "twitter_ratio_insert_tweet", "type": "float unsigned"},
+  {"name": "twitter_users", "type": "int unsigned"}
+]

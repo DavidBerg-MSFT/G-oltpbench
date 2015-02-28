@@ -1,0 +1,12 @@
+[
+  {"name": "auctionmark_customers", "type": "int unsigned"},
+  {"name": "auctionmark_ratio_get_item", "type": "tinyint unsigned"},
+  {"name": "auctionmark_ratio_get_user_info", "type": "tinyint unsigned"},
+  {"name": "auctionmark_ratio_new_bid", "type": "tinyint unsigned"},
+  {"name": "auctionmark_ratio_new_comment", "type": "tinyint unsigned"},
+  {"name": "auctionmark_ratio_new_comment_response", "type": "tinyint unsigned"},
+  {"name": "auctionmark_ratio_new_feedback", "type": "tinyint unsigned"},
+  {"name": "auctionmark_ratio_new_item", "type": "tinyint unsigned"},
+  {"name": "auctionmark_ratio_new_purchase", "type": "tinyint unsigned"},
+  {"name": "auctionmark_ratio_update_item", "type": "tinyint unsigned"}
+]

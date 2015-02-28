@@ -18,10 +18,10 @@
 /**
  * saves results based on the arguments defined in ../run.sh
  */
-require_once(dirname(__FILE__) . '/TeraSortTest.php');
-require_once(dirname(__FILE__) . '/save/BenchmarkDb.php');
+require_once(dirname(__FILE__) . '/OltpBenchTest.php');
+require_once(dirname(__FILE__) . '/benchmark/save/BenchmarkDb.php');
 $status = 1;
-$args = parse_args(array('iteration:', 'nostore_conf', 'nostore_logs', 'nostore_rrd', 'v' => 'verbose'));
+$args = parse_args(array('iteration:', 'nostore_html', 'nostore_pdf', 'nostore_rrd', 'nostore_zip', 'v' => 'verbose'));
 
 // get result directories => each directory stores 1 iteration of results
 $dirs = array();
@@ -35,16 +35,14 @@ else $dirs[] = $dir;
 if ($db =& BenchmarkDb::getDb()) {
   // get results from each directory
   foreach($dirs as $i => $dir) {
-    $test = new TeraSortTest($dir);
+    $test = new OltpBenchTest($dir);
     $iteration = isset($args['iteration']) && preg_match('/([0-9]+)/', $args['iteration'], $m) ? $m[1]*1 : $i + 1;
     if ($results = $test->getResults()) {
-      $results['iteration'] = $iteration;
-      print_msg(sprintf('Saving results in directory %s', $dir), isset($args['verbose']), __FILE__, __LINE__);
-      foreach(array('nostore_conf' => 'terasort-conf.zip', 'nostore_logs' => 'terasort-logs.zip', 'nostore_rrd' => 'collectd-rrd.zip') as $arg => $file) {
+      print_msg(sprintf('Saving results in directory %s with %d rows', $dir, count($results)), isset($args['verbose']), __FILE__, __LINE__);
+      foreach(array('nostore_html' => 'report.zip', 'nostore_pdf' => 'report.pdf', 'nostore_zip' => 'oltp-bench.zip') as $arg => $file) {
         $file = sprintf('%s/%s', $dir, $file);
         if (!isset($args[$arg]) && file_exists($file)) {
-          $pieces = explode('_', $arg);
-          $col = $arg == 'nostore_rrd' ? 'collectd_rrd' : sprintf('terasort_%s', $pieces[count($pieces) - 1]);
+          $col = $arg == 'nostore_html' ? 'report_zip' : ($arg == 'nostore_pdf' ? 'report_pdf' : ($arg == 'nostore_rrd' ? 'collectd_rrd' : 'oltp_files'));
           $saved = $db->saveArtifact($file, $col);
           if ($saved) print_msg(sprintf('Saved %s successfully', basename($file)), isset($args['verbose']), __FILE__, __LINE__);
           else if ($saved === NULL) print_msg(sprintf('Unable to save %s', basename($file)), isset($args['verbose']), __FILE__, __LINE__, TRUE);
@@ -52,8 +50,19 @@ if ($db =& BenchmarkDb::getDb()) {
         }
         else if (file_exists($file)) print_msg(sprintf('Artifact %s will not be saved because --%s was set', basename($file), $arg), isset($args['verbose']), __FILE__, __LINE__);
       }
-      if ($db->addRow('terasort', $results)) print_msg(sprintf('Successfully saved test results'), isset($args['verbose']), __FILE__, __LINE__);
-      else print_msg(sprintf('Failed to save test results'), isset($args['verbose']), __FILE__, __LINE__, TRUE);
+      $saved = array();
+      foreach($results as $n => $row) {
+        $test = $row['test'];
+        $row['iteration'] = $iteration;
+        // save collectd rrd files
+        if (!isset($args['nostore_rrd']) && !isset($saved[$test]) && file_exists($file = sprintf('%s/collectd-rrd-%s.zip', $dir, $test))) {
+          $saved[$test] = $db->saveArtifact($file, 'collectd_rrd');
+          if ($saved[$test]) print_msg(sprintf('Saved collectd rrd files %s successfully', basename($file)), isset($args['verbose']), __FILE__, __LINE__);
+          else if ($saved[$test] === NULL) print_msg(sprintf('Unable to save collectd rrd files %s', basename($file)), isset($args['verbose']), __FILE__, __LINE__, TRUE);
+        }
+        if ($db->addRow($test, $row)) print_msg(sprintf('Successfully saved test results row %d', $n+1), isset($args['verbose']), __FILE__, __LINE__);
+        else print_msg(sprintf('Failed to save test results'), isset($args['verbose']), __FILE__, __LINE__, TRUE); 
+      }
     }
     else print_msg(sprintf('Unable to save results in directory %s - are result files present?', $dir), isset($args['verbose']), __FILE__, __LINE__, TRUE);
   }

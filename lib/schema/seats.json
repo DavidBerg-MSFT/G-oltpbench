@@ -1,0 +1,9 @@
+[
+  {"name": "seats_customers", "type": "int unsigned"},
+  {"name": "seats_ratio_delete_reservation", "type": "tinyint unsigned"},
+  {"name": "seats_ratio_find_flights", "type": "tinyint unsigned"},
+  {"name": "seats_ratio_find_open_seats", "type": "tinyint unsigned"},
+  {"name": "seats_ratio_new_reservation", "type": "tinyint unsigned"},
+  {"name": "seats_ratio_update_customer", "type": "tinyint unsigned"},
+  {"name": "seats_ratio_update_reservation", "type": "tinyint unsigned"}
+]

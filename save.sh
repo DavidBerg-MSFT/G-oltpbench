@@ -17,7 +17,7 @@ if [ "$1" == "-h" ] || [ "$1" == "--help" ] ; then
   cat << EOF
 Usage: save.sh [args] [/path/to/results]
 
-Saves TeraSort test results to CSV files, Google BigQuery, MySQL, PostgreSQL,
+Saves OLTP benchmark results to CSV files, Google BigQuery, MySQL, PostgreSQL,
 Librato Metrics or via HTTP callback. Test artifacts may also be saved to S3, 
 Google Cloud Storage or Azure (API) compatible object storage
 
@@ -279,12 +279,14 @@ the others are not repeated, they will be applied to all submissions
 --iteration                 Explicit iteration number for test results - 
                             otherwise 1 will be assumed unless results are in 
                             numbered sub-directories
-                            
---nostore_conf              Do not store the TeraSort configuration archive
-                            
---nostore_log               Do not store the TeraSort logs archive
+
+--nostore_html              Do not store report.zip (HTML report)
+
+--nostore_pdf               Do not store report.pdf
 
 --nostore_rrd               Do not store collectd RRD files
+
+--nostore_zip               Do not store OLTB bench files archive
 
 --output                    The output directory to use for writing CSV files.
                             If not specified, the current working directory 
@@ -415,12 +417,12 @@ USAGE
 ./save.sh
 
 # save results from 5 iterations text example above
-./save.sh ~/geekbench-testing
+./save.sh ~/oltp-testing
 
 # save results to a PostgreSQL database
 ./save --db postgresql --db_user dbuser --db_pswd dbpass --db_host db.mydomain.com --db_name benchmarks
 
-# save results to BigQuery and artifact (TRIAD gnuplot PNG image) to S3
+# save results to BigQuery and artifacts to S3
 ./save --db bigquery --db_name benchmark_dataset --store s3 --store_key THISIH5TPISAEZIJFAKE --store_secret thisNoat1VCITCGggisOaJl3pxKmGu2HMKxxfake --store_container benchmarks1234
 
 # save results to Librato Metrics using the median metric and custom name/source

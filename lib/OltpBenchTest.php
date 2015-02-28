@@ -15,19 +15,19 @@
 
 
 /**
- * Used to manage GEEKBENCH testing
+ * Used to manage OLTP Benchmark testing
  */
-require_once(dirname(__FILE__) . '/util.php');
+require_once(dirname(__FILE__) . '/benchmark/util.php');
 ini_set('memory_limit', '16m');
 date_default_timezone_set('UTC');
 
-class TeraSortTest {
+class OltpBenchTest {
   
   /**
    * name of the file where serializes options should be written to for given 
    * test iteration
    */
-  const TERASORT_TEST_OPTIONS_FILE_NAME = '.options';
+  const OLTP_BENCH_TEST_OPTIONS_FILE_NAME = '.options';
   
   /**
    * optional results directory object was instantiated for
@@ -35,9 +35,109 @@ class TeraSortTest {
   private $dir;
   
   /**
+   * TRUE if not explicit test rate was set
+   */
+  private $noRate = FALSE;
+  
+  /**
    * run options
    */
   private $options;
+  
+  /**
+   * max number of clients used
+   */
+  private $maxClients;
+  
+  /**
+   * TRUE if database is MySQL or PostgreSQL
+   */
+  private $mysqlOrPostgres;
+  
+  /**
+   * array containing test results for each test/subtest/step. The key in this
+   * array is [test]-[subtest]-[step #] and the value is a hash with the 
+   * following keys:
+   *   test => test performed
+   *   jpab_test => JPAB subtest (jpab only)
+   *   step => step #
+   *   processes => # of processes
+   *   clients => # of clients per process
+   *   rate => rate (if rate limited)
+   *   time => test time (seconds)
+   *   warmup => true if this was the warmup (firs step if --test_warmup set)
+   *   start => start time (timestamp)
+   *   stop => stop time (timestamp)
+   *   latency: mean latency - ms
+   *   latency_10: 10th percentile latency - ms
+   *   latency_20: 20th percentile latency - ms
+   *   latency_30: 30th percentile latency - ms
+   *   latency_40: 40th percentile latency - ms
+   *   latency_50: 50th percentile latency (median) - ms
+   *   latency_60: 60th percentile latency - ms
+   *   latency_70: 70th percentile latency - ms
+   *   latency_80: 80th percentile latency - ms
+   *   latency_90: 90th percentile latency - ms
+   *   latency_95: 95th percentile latency - ms
+   *   latency_99: 99th percentile latency - ms
+   *   latency_at_max: latency at max throughput - ms
+   *   latency_max: max latency - ms
+   *   latency_min: min latency - ms
+   *   latency_values: array of all mean latency values indexed by seconds
+   *   latency_values_max: array of all max percentile latency values indexed by seconds
+   *   latency_values_min: array of all min latency values indexed by seconds
+   *   latency_values_25: array of all 25th percentile latency values indexed by seconds
+   *   latency_values_50: array of all 50th (median) percentile latency values indexed by seconds
+   *   latency_values_75: array of all 75th percentile latency values indexed by seconds
+   *   latency_values_90: array of all 90th percentile latency values indexed by seconds
+   *   latency_values_95: array of all 95th percentile latency values indexed by seconds
+   *   latency_values_99: array of all 99th percentile latency values indexed by seconds
+   *   steady_state: duration (seconds) before steady state achieve (less than 
+   *     10% throughput variation in 5 sequential measurements) - null if not 
+   *     achieved
+   *   throughput: mean throughput - req/sec
+   *   throughput_10: 10th percentile throughput - req/sec
+   *   throughput_20: 20th percentile throughput - req/sec
+   *   throughput_30: 30th percentile throughput - req/sec
+   *   throughput_40: 40th percentile throughput - req/sec
+   *   throughput_50: 50th percentile throughput (median) - req/sec
+   *   throughput_60: 60th percentile throughput - req/sec
+   *   throughput_70: 70th percentile throughput - req/sec
+   *   throughput_80: 80th percentile throughput - req/sec
+   *   throughput_90: 90th percentile throughput - req/sec
+   *   throughput_95: 95th percentile throughput - req/sec
+   *   throughput_99: 99th percentile throughput - req/sec
+   *   throughput_max: max throughput - req/sec
+   *   throughput_min: min throughput - req/sec
+   *   throughput_stdev: throughput standard deviation
+   *   throughput_values: array of all throughput values indexed by seconds
+   */
+  private $results = array();
+  
+  /**
+   * steps to perform during test - array of hashes with these keys:
+   *   clients => number of clients
+   *   rate => rate
+   *   start => start time for this step (seconds)
+   *   stop => stop time for this step (seconds)
+   *   time => time (seconds)
+   */
+  private $steps = array();
+  
+  /**
+   * some tests have sub-tests (e.g. JPAB)
+   */
+  private $subtest;
+  
+  /**
+   * the current test
+   */
+  private $test;
+  
+  /**
+   * enable verbose output?
+   */
+  private $verbose;
   
   
   /**
@@ -46,158 +146,208 @@ class TeraSortTest {
    * for. If set, runtime parameters will be pulled from the .options file. Do
    * not set when running a test
    */
-  public function TeraSortTest($dir=NULL) {
+  public function OltpBenchTest($dir=NULL) {
     $this->dir = $dir;
   }
   
   /**
-   * checks for dynamic tokens and expressions in $variable and replaces and 
-   * executes accordingly. Return value is the final value
-   * @param string $variable the variable to evaluate
+   * builds the OLTP-Bench XML configuration file. File is written to 
+   * [output]/[benchmark].xml and the file path is returned
    * @return string
    */
-  private function checkForExpression($variable) {
-    // threads is based on number of CPUs
-    if (preg_match('/^(.*)=(.*)$/', $variable, $m)) {
-      $key = $m[1];
-      $value = $m[2];
-      if (preg_match('/{cpus}/', $value) || preg_match('/{nodes}/', $value) || preg_match('/{rows}/', $value) || preg_match('/{gb}/', $value)) {
-        $cpus = trim(shell_exec('nproc'))*1;
-        $value = str_replace(' ', '', str_replace('{cpus}', $cpus, $value));
-        $value = str_replace(' ', '', str_replace('{nodes}', $this->options['meta_hdfs_nodes'], $value));
-        $value = str_replace(' ', '', str_replace('{rows}', $this->options['teragen_rows'], $value));
-        $value = str_replace(' ', '', str_replace('{gb}', round($this->options['teragen_rows']/10000000), $value));
-        // expression
-        if (preg_match('/[\*\+\-\/]/', $value)) {
-          eval(sprintf('$value=ceil(%s);', $value));
-        }
-        $value *= 1;
+  private function buildOltpBenchConfig() {
+    $dbUrl = str_replace('[benchmark]', $this->test, $this->options['db_url']);
+    $fp = fopen($config = sprintf('%s/%s.xml', $this->options['output'], $this->test . ($this->test != $this->subtest ? '-' . $this->subtest : '')), 'w');
+    print_msg(sprintf('Generating OLTP-Bench XML config %s', $config), $this->verbose, __FILE__, __LINE__);
+    fwrite($fp, '<?xml version="1.0"?>');
+    fwrite($fp, "\n<parameters>");
+    fwrite($fp, sprintf("\n  <dbtype>%s</dbtype>", $this->options['db_type']));
+    fwrite($fp, sprintf("\n  <driver>%s</driver>", $this->options['db_driver']));
+    fwrite($fp, sprintf("\n  <DBUrl>%s</DBUrl>", $dbUrl));
+    fwrite($fp, sprintf("\n  <username>%s</username>", $this->options['db_user']));
+    fwrite($fp, sprintf("\n  <password>%s</password>", isset($this->options['db_pswd']) ? $this->options['db_pswd'] : ''));
+    fwrite($fp, sprintf("\n  <isolation>%s</isolation>", OltpBenchTest::translateDbIsolation($this->options['db_isolation'])));
+    if ($sf = $this->getScaleFactor()) fwrite($fp, sprintf("\n  <scalefactor>%d</scalefactor>", $sf));
+    // JPAB test => set sub-test class
+    if ($this->test == 'jpab') {
+      $pfile = sprintf('%s/jpab-%s-persistence.xml', $this->options['output'], $this->subtest);
+      if (!file_exists($pfile)) {
+        $persistence = file_get_contents(dirname(__FILE__) . '/persistence-template.xml');
+        $persistence = str_replace('[test]', $this->subtest, $persistence);
+        $persistence = str_replace('[db_driver]', $this->options['db_driver'], $persistence);
+        $persistence = str_replace('[db_url]', $dbUrl, $persistence);
+        $persistence = str_replace('[db_user]', $this->options['db_user'], $persistence);
+        $persistence = str_replace('[db_pswd]', isset($this->options['db_pswd']) ? $this->options['db_pswd'] : '', $persistence);
+        $persistence = str_replace('[db_dialect]', $this->getHibernateDialect(), $persistence);
+        if (file_put_contents($pfile, $persistence)) print_msg(sprintf('Generated JPA persistence.xml file in %s', $pfile), $this->verbose, __FILE__, __LINE__);
+        else print_msg(sprintf('Unable to write JPA persistence.xml file %s', $pfile), $this->verbose, __FILE__, __LINE__, TRUE);
       }
-      $variable = sprintf('%s=%s', $key, $value);
+      if (file_exists($pfile)) {
+        $oltpPfile = dirname(__FILE__) . '/oltpbench/build/META-INF/persistence.xml';
+        exec(sprintf('rm -f %s', $oltpPfile));
+        exec(sprintf('cp %s %s', $pfile, $oltpPfile));
+        print_msg(sprintf('Copied JPA persistence config from %s to %s', basename($pfile), $oltpPfile), $this->verbose, __FILE__, __LINE__); 
+      }
+      // unable to write persistence file - testing cannot proceed
+      else {
+        fclose($fp);
+        return NULL;
+      }
+      fwrite($fp, sprintf("\n  <persistence-unit>Hibernate-%s</persistence-unit>", $this->subtest));
+      fwrite($fp, sprintf("\n  <testClass>%s</testClass>", OltpBenchTest::getJpabTestClass($this->subtest)));
     }
-    return $variable;
+    // Twitter trace files
+    else if ($this->test == 'twitter') {
+      fwrite($fp, "\n  <tracefile>config/traces/twitter_tweetids.txt</tracefile>");
+      fwrite($fp, "\n  <tracefile2>config/traces/twitter_user_ids.txt</tracefile2>");
+    }
+    // Wikipedia trace files
+    else if ($this->test == 'wikipedia') {
+      fwrite($fp, "\n  <traceOut>10</traceOut>");
+      fwrite($fp, "\n  <tracefiledebug>debug_wiki</tracefiledebug>");
+      fwrite($fp, "\n  <tracefile>config/traces/longtrace_100k.txt</tracefile>");
+    }
+    fwrite($fp, sprintf("\n  <terminals>%d</terminals>", $this->maxClients));
+    fwrite($fp, "\n  <works>");
+    foreach($this->steps as $step) {
+      fwrite($fp, "\n    <work>");
+      if ($step['clients'] != $this->maxClients) fwrite($fp, sprintf("\n      <active_terminals>%d</active_terminals>", $step['clients']));
+      fwrite($fp, sprintf("\n      <time>%d</time>", $step['time']));
+      fwrite($fp, sprintf("\n      <rate>%d</rate>", $step['rate']));
+      fwrite($fp, sprintf("\n      <weights>%s</weights>", implode(',', $this->getTestWeights())));
+      fwrite($fp, "\n    </work>");
+    }
+    fwrite($fp, "\n  </works>");
+    fwrite($fp, "\n  <transactiontypes>");
+    foreach($this->getTransactionTypes() as $name => $id) {
+      fwrite($fp, "\n    <transactiontype>");
+      fwrite($fp, sprintf("\n      <name>%s</name>", $name));
+      if ($id) fwrite($fp, sprintf("\n      <id>%s</id>", $id));
+      fwrite($fp, "\n    </transactiontype>");
+    }
+    fwrite($fp, "\n  </transactiontypes>");
+    fwrite($fp, "\n</parameters>\n");
+    fclose($fp);
+    return $config;
   }
   
   /**
    * writes test results and finalizes testing
+   * @param int $success number of successful tests performed
    * @return boolean
    */
-  private function endTest() {
+  private function endTest($success) {
     $ended = FALSE;
     $dir = $this->options['output'];
     
     // add test stop time
     $this->options['test_stopped'] = date('Y-m-d H:i:s');
+    $this->options['maxClients'] = $this->maxClients;
+    if ($success) $this->options['results'] = $this->results;
+    $this->options['steps'] = $this->steps;
     
-    // get hadoop version
-    $pieces = explode("\n", trim(shell_exec('hadoop version 2>&1')));
-    if ($pieces[0]) {
-      $pieces = explode(' ', $pieces[0]);
-      $this->options['hadoop_version'] = $pieces[count($pieces) - 1];
-      print_msg(sprintf('Set hadoop_version=%s', $this->options['hadoop_version']), isset($this->options['verbose']), __FILE__, __LINE__);
-    }
-    
-    // get java version
-    $jversion = NULL;
-    $jvendor = NULL;
-    foreach(explode("\n", shell_exec('java -version 2>&1')) as $line) {
-      if (preg_match('/"([0-9\._]+)"/', trim($line), $m)) $jversion = $m[1];
-      else if (!$jvendor && preg_match('/openjdk/i', trim($line))) $jvendor = 'OpenJDK';
-      else if (!$jvendor && preg_match('/hotspot/i', trim($line))) $jvendor = 'Oracle';
-      else if (!$jvendor && preg_match('/ibm/i', trim($line))) $jvendor = 'IBM';
-    }
-    if ($jversion) {
-      $this->options['java_version'] = sprintf('%s%s', $jvendor ? $jvendor . ' ' : '', $jversion);
-      print_msg(sprintf('Set java_version=%s', $this->options['java_version']), isset($this->options['verbose']), __FILE__, __LINE__);
-    }
-    
-    foreach(array('teragen', 'terasort', 'teravalidate') as $prog) {
-      if (isset($this->options['teragen_rows']) && isset($this->options[sprintf('%s_time', $prog)])) {
-        $secs = $this->options[sprintf('%s_time', $prog)];
-        $gb = $this->options['teragen_rows']/10000000;
-        $this->options[sprintf('%s_gbs', $prog)] = round($gb/$secs, 8);
-      }
-      $ofile = sprintf('%s/%s.out', $this->options['output'], $prog);
-      if (file_exists($ofile)) {
-        foreach(file($ofile) as $line) {
-          if (preg_match('/map tasks\s*=\s*([0-9]+)$/', trim($line), $m)) $this->options[sprintf('%s_map_tasks', $prog)] = $m[1]*1;
-          else if (preg_match('/reduce tasks\s*=\s*([0-9]+)$/', trim($line), $m)) $this->options[sprintf('%s_reduce_tasks', $prog)] = $m[1]*1;
-        }
-      }
-    }
-    
-    // set settings_core, settings_hdfs, settings_mapred
-    if (is_dir($this->options['hadoop_conf_dir'])) {
-      foreach(array('core-site.xml', 'hdfs-site.xml', 'mapred-site.xml', 'yarn-site.xml') as $file) {
-        if (file_exists($file = sprintf('%s/%s', $this->options['hadoop_conf_dir'], $file))) {
-          $key = sprintf('settings_%s', str_replace('-site.xml', '', basename($file)));
-          if (preg_match_all('/name>([^<]+)<.*value>([^<]+)</msU', file_get_contents($file), $m)) {
-            foreach($m[1] as $i => $k) {
-              if (trim($k) && isset($m[2][$i])) {
-                $k = trim($k);
-                // check for arg overrides
-                foreach(array('tera_args', 'teragen_args', 'terasort_args', 'teravalidate_args') as $akey) {
-                  if (isset($this->options[$akey]) && isset($this->options[$akey][$k])) $v = $this->options[$akey][$k];
-                }
-                $v = str_replace(' ', '', str_replace("\n", '', trim($m[2][$i])));
-                if (strpos($v, ',')) $v = explode(',', $v);
-                if ($v === 'false') $v = FALSE;
-                else if ($v === 'true') $v = TRUE;
-                else if (is_numeric($v)) $v *= 1;
-                if (!isset($this->options[$key])) $this->options[$key] = array();
-                $this->options[$key][$k] = $v;
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    // compression used?
-    if (isset($this->options['settings_mapred']) && isset($this->options['settings_mapred']['mapreduce.map.output.compress']) && $this->options['settings_mapred']['mapreduce.map.output.compress']) {
-      $this->options['compression'] = TRUE;
-      if ($this->options['compression_codec'] = isset($this->options['settings_mapred']['mapreduce.map.output.compress.codec']) ? $this->options['settings_mapred']['mapreduce.map.output.compress.codec'] : 'org.apache.hadoop.io.compress.DefaultCodec') {
-        $pieces = explode('.', $this->options['compression_codec']);
-        $this->options['compression_codec'] = $pieces[count($pieces) - 1];
-      }
+    if ($java = get_java_version()) {
+      $this->options['java_version'] = sprintf('%s%s', $java['vendor'] ? $java['vendor'] . ' ' : '', $java['version']);
+      print_msg(sprintf('Set java_version=%s', $this->options['java_version']), $this->verbose, __FILE__, __LINE__); 
     }
     
     // serialize options
-    $ofile = sprintf('%s/%s', $dir, self::TERASORT_TEST_OPTIONS_FILE_NAME);
+    $ofile = sprintf('%s/%s', $dir, self::OLTP_BENCH_TEST_OPTIONS_FILE_NAME);
     if (is_dir($dir) && is_writable($dir)) {
       $fp = fopen($ofile, 'w');
       fwrite($fp, serialize($this->options));
       fclose($fp);
       $ended = TRUE;
     }
-    if (file_exists(sprintf('%s/teragen.xml', $this->options['output']))) {
-      exec(sprintf('cd %s;zip terasort-conf.zip *.xml;rm -f *.xml', $this->options['output']));
-      print_msg(sprintf('Created configuration test artifact %s/terasort-conf.zip', $this->options['output']), isset($this->options['verbose']), __FILE__, __LINE__);
-    }
-    if (file_exists(sprintf('%s/teragen.out', $this->options['output']))) {
-      exec(sprintf('cd %s;zip terasort-logs.zip *.out *.log;mv output.log output.tmp;rm -f *.out *.log;mv output.tmp output.log', $this->options['output']));
-      print_msg(sprintf('Created log test artifact %s/terasort-logs.zip', $this->options['output']), isset($this->options['verbose']), __FILE__, __LINE__);
-    }
+    
+    // TODO: generate artifacts: oltp-bench.zip, report.zip, report.pdf
     
     return $ended;
   }
   
   /**
-   * returns results from testing as a hash of key/value pairs. If results are
-   * not available, returns NULL
-   * @param boolean $verbose show verbose output
+   * evaluates a string containing an expression. The substring [cpus] will be 
+   * replaced with the number of CPU cores
+   * @param string $expr the expression to evaluate
+   * @return float
+   */
+  private function evaluateExpression($expr) {
+    $sysInfo = get_sys_info();
+    $expr = str_replace('[cpus]', isset($sysInfo['cpu_cores']) ? $sysInfo['cpu_cores'] : 2, $expr);
+    eval(sprintf('$value=round(%s);', $expr));
+    $value *= 1;
+    return $value;
+  }
+  
+  /**
+   * returns the Hibernate dialect to use based on the datbase type
+   * @return string
+   */
+  private function getHibernateDialect() {
+    $dialect = NULL;
+    switch($this->options['db_type']) {
+      case 'mysql':
+        $dialect = 'org.hibernate.dialect.MySQLDialect';
+        break;
+      case 'db2':
+        $dialect = 'org.hibernate.dialect.DB2Dialect';
+        break;
+      case 'postgres':
+        $dialect = 'org.hibernate.dialect.PostgreSQLDialect';
+        break;
+      case 'oracle':
+        $dialect = 'org.hibernate.dialect.Oracle8iDialect';
+        break;
+      case 'sqlserver':
+        $dialect = 'org.hibernate.dialect.SQLServerDialect';
+        break;
+    }
+    return $dialect;
+  }
+  
+  /**
+   * returns the Java class to use for the JPAB test identified by $jpabTest
+   * @param string $jpabTest the JPAB test to return the class name for
+   * @return string
+   */
+  private static function getJpabTestClass($jpabTest) {
+    $jpabClass = NULL;
+    switch($jpabTest) {
+      case 'basic':
+        $jpabClass = 'BasicTest';
+        break;
+      case 'collection':
+        $jpabClass = 'CollectionTest';
+        break;
+      case 'inheritance':
+        $jpabClass = 'ExtTest';
+        break;
+      case 'indexing':
+        $jpabClass = 'IndexTest';
+        break;
+      case 'graph':
+        $jpabClass = 'NodeTest';
+        break;
+    }
+    return $jpabClass;
+  }
+  
+  /**
+   * returns results as an array of rows if testing was successful, NULL 
+   * otherwise
    * @return array
    */
-  public function getResults($verbose=NULL) {
-    $results = NULL;
-    if (is_dir($this->dir) && self::getSerializedOptions($this->dir) && $this->getRunOptions()) {
-      $results = array();
+  public function getResults() {
+    $rows = NULL;
+    if (is_dir($this->dir) && self::getSerializedOptions($this->dir) && $this->getRunOptions() && isset($this->options['results'])) {
+      $rows = array();
+      $brow = array();
       foreach($this->options as $key => $val) {
-        $col = $key;
-        $results[$col] = is_array($val) ? json_encode($val) : $val;
+        if (!is_array($this->options[$key])) $brow[$key] = $val;
       }
+      foreach($this->options['results'] as $result) $rows[] = array_merge($brow, $result);
     }
-    return $results;
+    return $rows;
   }
   
   /**
@@ -211,35 +361,143 @@ class TeraSortTest {
         // default run argument values
         $sysInfo = get_sys_info();
         $defaults = array(
+          'auctionmark_ratio_get_item' => 45,
+          'auctionmark_ratio_get_user_info' => 10,
+          'auctionmark_ratio_new_bid' => 20,
+          'auctionmark_ratio_new_comment' => 2,
+          'auctionmark_ratio_new_comment_response' => 1,
+          'auctionmark_ratio_new_feedback' => 4,
+          'auctionmark_ratio_new_item' => 10,
+          'auctionmark_ratio_new_purchase' => 5,
+          'auctionmark_ratio_update_item' => 3,
           'collectd_rrd_dir' => '/var/lib/collectd/rrd',
-          'hadoop_home' => '/usr/local/hadoop',
+          'db_host' => 'localhost',
+          'db_isolation' => 'serializable',
+          'db_load' => FALSE,
+          'db_name' => 'oltp_[benchmark]',
+          'db_type' => 'mysql',
+          'db_user' => 'root',
+          'epinions_ratio_get_review_item_id' => 10,
+          'epinions_ratio_get_reviews_user' => 10,
+          'epinions_ratio_get_average_rating_trusted_user' => 10,
+          'epinions_ratio_get_average_rating' => 10,
+          'epinions_ratio_get_item_reviews_trusted_user' => 10,
+          'epinions_ratio_update_user_name' => 10,
+          'epinions_ratio_update_item_title' => 10,
+          'epinions_ratio_update_review_rating' => 10,
+          'epinions_ratio_update_trust_rating' => 20,
+          'jpab_ratio_delete' => 25,
+          'jpab_ratio_persist' => 25,
+          'jpab_ratio_retrieve' => 25,
+          'jpab_ratio_update' => 25,
+          'jpab_test' => array('basic'),
           'meta_compute_service' => 'Not Specified',
           'meta_cpu' => $sysInfo['cpu'],
           'meta_instance_id' => 'Not Specified',
-          'meta_map_reduce_version' => 2,
           'meta_memory' => $sysInfo['memory_gb'] > 0 ? $sysInfo['memory_gb'] . ' GB' : $sysInfo['memory_mb'] . ' MB',
           'meta_os' => $sysInfo['os_info'],
           'meta_provider' => 'Not Specified',
           'meta_storage_config' => 'Not Specified',
+          'test' => array('tpcc'),
           'output' => trim(shell_exec('pwd')),
-          'teragen_dir' => 'terasort-input',
-          'teragen_rows' => 10000000000,
-          'terasort_dir' => 'terasort-output',
-          'teravalidate_dir' => 'terasort-validate'
+          'resourcestresser_ratio_cpu1' => 17,
+          'resourcestresser_ratio_cpu2' => 17,
+          'resourcestresser_ratio_io1' => 17,
+          'resourcestresser_ratio_io2' => 17,
+          'resourcestresser_ratio_contention1' => 16,
+          'resourcestresser_ratio_contention2' => 16,
+          'seats_ratio_delete_reservation' => 10,
+          'seats_ratio_find_flights' => 10,
+          'seats_ratio_find_open_seats' => 35,
+          'seats_ratio_new_reservation' => 20,
+          'seats_ratio_update_customer' => 10,
+          'seats_ratio_update_reservation' => 15,
+          'steady_state_threshold' => 5,
+          'steady_state_window' => 3,
+          'tatp_ratio_delete_call_forwarding' => 2,
+          'tatp_ratio_get_access_data' => 35,
+          'tatp_ratio_get_new_destination' => 10,
+          'tatp_ratio_get_subscriber_data' => 35,
+          'tatp_ratio_insert_call_forwarding' => 2,
+          'tatp_ratio_update_location' => 14,
+          'tatp_ratio_update_subscriber_data' => 2,
+          'test_clients' => isset($sysInfo['cpu_cores']) ? $sysInfo['cpu_cores'] : 2,
+          'test_processes' => 1,
+          'test_sample_interval' => 5,
+          'test_time' => 60,
+          'tpcc_ratio_delivery' => 4,
+          'tpcc_ratio_new_order' => 45,
+          'tpcc_ratio_order_status' => 4,
+          'tpcc_ratio_payment' => 43,
+          'tpcc_ratio_stock_level' => 4,
+          'twitter_ratio_get_tweet' => 0.07,
+          'twitter_ratio_get_tweet_following' => 0.07,
+          'twitter_ratio_get_followers' => 7.6725,
+          'twitter_ratio_get_user_tweets' => 91.2656,
+          'twitter_ratio_insert_tweet' => 0.9219,
+          'wikipedia_ratio_add_watch_list' => 0.07,
+          'wikipedia_ratio_remove_watch_list' => 0.07,
+          'wikipedia_ratio_update_page' => 7.6725,
+          'wikipedia_ratio_get_page_anonymous' => 91.2656,
+          'wikipedia_ratio_get_page_authenticated' => 0.9219,
+          'ycsb_ratio_read' => 50,
+          'ycsb_ratio_insert' => 50,
+          'ycsb_ratio_scan' => 0,
+          'ycsb_ratio_update' => 0,
+          'ycsb_ratio_delete' => 0,
+          'ycsb_ratio_read_modify_write' => 0
         );
         $opts = array(
+          'auctionmark_customers:',
+          'auctionmark_ratio_get_item:',
+          'auctionmark_ratio_get_user_info:',
+          'auctionmark_ratio_new_bid:',
+          'auctionmark_ratio_new_comment:',
+          'auctionmark_ratio_new_comment_response:',
+          'auctionmark_ratio_new_feedback:',
+          'auctionmark_ratio_new_item:',
+          'auctionmark_ratio_new_purchase:',
+          'auctionmark_ratio_update_item:',
+          'epinions_ratio_get_review_item_id:',
+          'epinions_ratio_get_reviews_user:',
+          'epinions_ratio_get_average_rating_trusted_user:',
+          'epinions_ratio_get_average_rating:',
+          'epinions_ratio_get_item_reviews_trusted_user:',
+          'epinions_ratio_update_user_name:',
+          'epinions_ratio_update_item_title:',
+          'epinions_ratio_update_review_rating:',
+          'epinions_ratio_update_trust_rating:',
+          'epinions_users:',
+          'classpath:',
           'collectd_rrd',
           'collectd_rrd_dir:',
-          'hadoop_conf_dir:',
-          'hadoop_examples_jar:',
-          'hadoop_heapsize:',
-          'hadoop_home:',
+          'db_create',
+          'db_driver:',
+          'db_dump:',
+          'db_host:',
+          'db_isolation:',
+          'db_load',
+          'db_load_only',
+          'db_name:',
+          'db_nodrop',
+          'db_port:',
+          'db_pswd:',
+          'db_type:',
+          'db_url:',
+          'db_user:',
+          'jpab_objects:',
+          'jpab_ratio_delete:',
+          'jpab_ratio_persist:',
+          'jpab_ratio_retrieve:',
+          'jpab_ratio_update:',
+          'jpab_test:',
+          'meta_db_service:',
+          'meta_db_service_id:',
+          'meta_db_service_config:',
           'meta_compute_service:',
           'meta_compute_service_id:',
           'meta_cpu:',
-          'meta_hdfs_nodes:',
           'meta_instance_id:',
-          'meta_map_reduce_version:',
           'meta_memory:',
           'meta_os:',
           'meta_provider:',
@@ -247,79 +505,243 @@ class TeraSortTest {
           'meta_region:',
           'meta_resource_id:',
           'meta_run_id:',
+          'meta_run_group_id:',
           'meta_storage_config:',
-          'meta_storage_volumes:',
-          'meta_storage_volume_size:',
           'meta_test_id:',
-          'no_purge',
+          'nopdfreport',
+          'noreport',
           'output:',
-          'tera_args:',
-          'teragen_args:',
-          'teragen_balance:',
-          'teragen_dir:',
-          'teragen_rows:',
-          'terasort_args:',
-          'terasort_dir:',
-          'teravalidate_args:',
-          'teravalidate_dir:',
-          'v' => 'verbose'
+          'reportdebug',
+          'test:',
+          'resourcestresser_ratio_cpu1:',
+          'resourcestresser_ratio_cpu2:',
+          'resourcestresser_ratio_io1:',
+          'resourcestresser_ratio_io2:',
+          'resourcestresser_ratio_contention1:',
+          'resourcestresser_ratio_contention2:',
+          'seats_customers:',
+          'seats_ratio_delete_reservation:',
+          'seats_ratio_find_flights:',
+          'seats_ratio_find_open_seats:',
+          'seats_ratio_new_reservation:',
+          'seats_ratio_update_customer:',
+          'seats_ratio_update_reservation:',
+          'steady_state_threshold:',
+          'steady_state_window:',
+          'tatp_ratio_delete_call_forwarding:',
+          'tatp_ratio_get_access_data:',
+          'tatp_ratio_get_new_destination:',
+          'tatp_ratio_get_subscriber_data:',
+          'tatp_ratio_insert_call_forwarding:',
+          'tatp_ratio_update_location:',
+          'tatp_ratio_update_subscriber_data:',
+          'tatp_subscribers:',
+          'test_clients:',
+          'test_clients_step:',
+          'test_idle',
+          'test_processes:',
+          'test_rate:',
+          'test_rate_step:',
+          'test_sample_interval:',
+          'test_size:',
+          'test_size_ratio:',
+          'test_time:',
+          'test_time_step:',
+          'test_warmup',
+          'tpcc_ratio_delivery:',
+          'tpcc_ratio_new_order:',
+          'tpcc_ratio_order_status:',
+          'tpcc_ratio_payment:',
+          'tpcc_ratio_stock_level:',
+          'tpcc_warehouses:',
+          'twitter_ratio_get_tweet:',
+          'twitter_ratio_get_tweet_following:',
+          'twitter_ratio_get_followers:',
+          'twitter_ratio_get_user_tweets:',
+          'twitter_ratio_insert_tweet:',
+          'twitter_users:',
+          'v' => 'verbose',
+          'wikipedia_pages:',
+          'wikipedia_ratio_add_watch_list:',
+          'wikipedia_ratio_remove_watch_list:',
+          'wikipedia_ratio_update_page:',
+          'wikipedia_ratio_get_page_anonymous:',
+          'wikipedia_ratio_get_page_authenticated:',
+          'ycsb_user_rows:',
+          'ycsb_ratio_read:',
+          'ycsb_ratio_insert:',
+          'ycsb_ratio_scan:',
+          'ycsb_ratio_update:',
+          'ycsb_ratio_delete:',
+          'ycsb_ratio_read_modify_write:'
         );
-        $this->options = parse_args($opts, array('tera_args', 'teragen_args', 'terasort_args', 'teravalidate_args'));
+        $this->options = parse_args($opts, array('jpab_test', 'test'));
+        $this->verbose = isset($this->options['verbose']);
+        
+        // dynamic size values
+        if (isset($this->options['test_size']) && 
+           ($bmb = preg_match('/^\//', trim($this->options['test_size'])) ? get_free_space($this->options['test_size']) : size_from_string($this->options['test_size']))) {
+          $mb = $bmb;
+          if (!isset($this->options['test_size_ratio'])) $this->options['test_size_ratio'] = preg_match('/^\//', trim($this->options['test_size'])) ? 90 : 100;
+          if ($this->options['test_size_ratio'] >= 1 && $this->options['test_size_ratio'] <= 100) $mb = $mb*($this->options['test_size_ratio']*0.01);
+          print_msg(sprintf('Got free space %s MB from --test_size %s [%s MB] and --test_size_ratio %d', round($mb, 2), $this->options['test_size'], round($bmb, 2), $this->options['test_size_ratio']), $this->verbose, __FILE__, __LINE__);
+          
+          foreach(array('auctionmark_customers', 'epinions_users', 'seats_customers', 'tatp_subscribers', 'tpcc_warehouses', 'twitter_users', 'wikipedia_pages', 'ycsb_user_rows') as $p) {
+            if (!isset($this->options[$p])) {
+              $v = round($this->mbToParam($mb, $p));
+              $this->options[$p] = $v;
+              print_msg(sprintf('Set parameter %s=%d from --test_size %s [%d MB]', $p, $v, $this->options['test_size'], $mb), $this->verbose, __FILE__, __LINE__);
+            }
+          }
+        }
+        
+        // set default values
         foreach($defaults as $key => $val) {
           if (!isset($this->options[$key])) $this->options[$key] = $val;
         }
-        // set hadoop conf dir
-        if (!isset($this->options['hadoop_conf_dir']) && isset($this->options['hadoop_home']) && is_dir($d = $this->options['hadoop_home'] . '/etc/hadoop')) $this->options['hadoop_conf_dir'] = $d;
-        // set terasort jar file
-        if (!isset($this->options['hadoop_examples_jar']) && isset($this->options['hadoop_home']) && file_exists($f = $this->options['hadoop_home'] . '/share/hadoop/mapreduce/hadoop-mapreduce-examples-2.6.0.jar')) $this->options['hadoop_examples_jar'] = $f;
-      }
-      
-      // Set [hadoop_home]/bin in the path if valid and not already set
-      if (isset($this->options['hadoop_home']) && is_dir($b = $this->options['hadoop_home'] . '/bin') && !strpos(getenv('PATH'), $b)) putenv('PATH=' . getenv('PATH') . ':' . $b);
-      
-      // determine meta_hdfs_nodes using hdfs dfsadmin -report
-      if (!isset($this->options['meta_hdfs_nodes']) || !is_numeric($this->options['meta_hdfs_nodes']) || !$this->options['meta_hdfs_nodes']) {
-        $nodes = NULL;
-        if (($line = trim(shell_exec('hdfs dfsadmin -report | grep atanodes'))) && preg_match('/[^0-9]+([0-9]+)[^0-9]+/', trim($line), $m)) {
-          $nodes = $m[1]*1;
-          print_msg(sprintf('Successfully obtained meta_hdfs_nodes=%d using hdfs dfsadmin -report', $nodes), isset($this->options['verbose']), __FILE__, __LINE__);
+        if (!isset($this->options['test_rate'])) {
+          $this->options['test_rate'] = 10000;
+          $this->noRate = TRUE;
         }
-        else {
-          print_msg(sprintf('Unable to obtain meta_hdfs_nodes using hdfs dfsadmin -report'), isset($this->options['verbose']), __FILE__, __LINE__, TRUE);
-          $nodes = 1;
+        
+        // all tests
+        if (in_array('all', $this->options['test'])) $this->options['test'] = array('auctionmark', 'epinions', 'jpab', 'resourcestresser', 'seats', 'tatp', 'tpcc', 'twitter', 'wikipedia', 'ycsb');
+        
+        // all JPAB subtests
+        if (in_array('all', $this->options['jpab_test'])) $this->options['jpab_test'] = array('basic', 'collection', 'inheritance', 'indexing', 'graph');
+        
+        // create database
+        if (isset($this->options['db_load']) && !isset($this->options['db_create'])) $this->options['db_create'] = TRUE;
+        
+        // database driver
+        if (!isset($this->options['db_driver']) && $this->options['db_type'] == 'mysql') $this->options['db_driver'] = 'com.mysql.jdbc.Driver';
+        if (!isset($this->options['db_driver']) && $this->options['db_type'] == 'postgres') $this->options['db_driver'] = 'org.postgresql.Driver';
+        
+        // database port
+        if (!isset($this->options['db_port']) && $this->options['db_type'] == 'mysql') $this->options['db_port'] = 3306;
+        if (!isset($this->options['db_port']) && $this->options['db_type'] == 'postgres') $this->options['db_port'] = 5432;
+        
+        // database JDBC URL
+        if (!isset($this->options['db_url'])) $this->options['db_url'] = sprintf('jdbc:%s://%s%s/%s', $this->options['db_type'] == 'postgres' ? 'postgresql' : $this->options['db_type'], $this->options['db_host'], isset($this->options['db_port']) ? ':' . $this->options['db_port'] : '', $this->options['db_name']);
+        
+        // substitute [cpus]
+        $this->options['test_clients'] = str_replace('[cpus]', isset($sysInfo['cpu_cores']) ? $sysInfo['cpu_cores'] : 2, $this->options['test_clients']);
+        
+        foreach(array('test_clients', 'test_rate', 'test_time') as $p) {
+          $vals = array();
+          $pstep = $p . '_step';
+          if (preg_match('/^([0-9]+)\s*\-\s*([0-9]+)$/', trim($this->options[$p]), $m) && $m[1] < $m[2]) {
+            $vals[] = $m[1]*1;
+            $diff = $m[2] - $m[1];
+            $step = isset($this->options[$pstep]) && $this->options[$pstep] > 0 && $this->options[$pstep] < $diff ? $this->options[$pstep] : $diff;
+            while($vals[count($vals) - 1] <= $m[2]) $vals[] = $vals[count($vals) - 1] + $step;
+          }
+          else if (preg_match('/,/', $this->options[$p])) {
+            foreach(explode(',', trim($this->options[$p])) as $v) if (is_numeric($v) && $v > 0) $vals[] = $v*1; 
+          }
+          else if (is_numeric($this->options[$p])) $vals[] = $this->options[$p]*1;
+          $this->options[$p] = $vals;
         }
-        $this->options['meta_hdfs_nodes'] = $nodes;
-      }
-      
-      // determine number of volumes and sizes from /hdfsN mounts
-      if (!isset($this->options['meta_storage_volumes']) && !isset($this->options['meta_storage_volume_size'])) {
-        $volumes = 0;
-        $sizes = array();
-        $counter = 1;
-        while(is_dir($dir = sprintf('/hdfs%d', $counter++))) {
-          $volumes++;
-          $sizes[] = round(get_free_space($dir)/1024);
-        }
-        if ($volumes && array_sum($sizes)) {
-          $size = round(array_sum($sizes)/count($sizes));
-          print_msg(sprintf('Setting meta_storage_volumes=%d and meta_storage_volume_size=%d GB from directories /hdfsN', $volumes, $size), isset($this->options['verbose']), __FILE__, __LINE__);
-          $this->options['meta_storage_volumes'] = $volumes;
-          $this->options['meta_storage_volume_size'] = $size;
-        }
-      }
-      
-      // extrapolate args
-      foreach(array('tera_args', 'teragen_args', 'terasort_args', 'teravalidate_args') as $key) {
-        if (isset($this->options[$key]) && (!is_array($this->options[$key]) || !$this->options[$key])) unset($this->options[$key]);
-        else if (isset($this->options[$key])) {
-          foreach($this->options[$key] as $i => $variable) {
-            $this->options[$key][$i] = $this->checkForExpression($variable);
-            print_msg(sprintf('Set %s runtime argument to %s [base=%s]', $key, $this->options[$key][$i], $variable), isset($this->options['verbose']), __FILE__, __LINE__);
+        
+        if ($this->options['test_clients'] && $this->options['test_rate'] && $this->options['test_time']) {
+          // determine max number of clients
+          foreach($this->options['test_clients'] as $c) if ($c > $this->maxClients) $this->maxClients = $c;
+          if (!isset($this->options['tpcc_warehouses'])) $this->options['tpcc_warehouses'] = $this->maxClients;
+          if (!isset($this->options['auctionmark_customers'])) $this->options['auctionmark_customers'] = $this->maxClients*1000;
+          if (!isset($this->options['epinions_users'])) $this->options['epinions_users'] = $this->maxClients*20000;
+          if (!isset($this->options['jpab_objects'])) $this->options['jpab_objects'] = $this->maxClients*100000;
+          if (!isset($this->options['seats_customers'])) {
+            $this->options['seats_customers'] = $this->maxClients*100;
+            if ($this->options['seats_customers'] < 1000) $this->options['seats_customers'] = 1000;
+          }
+          if (!isset($this->options['tatp_subscribers'])) $this->options['tatp_subscribers'] = $this->maxClients*10;
+          if (!isset($this->options['twitter_users'])) $this->options['twitter_users'] = $this->maxClients*500;
+          if (!isset($this->options['wikipedia_pages'])) $this->options['wikipedia_pages'] = $this->maxClients*1000;
+          if (!isset($this->options['ycsb_user_rows'])) $this->options['ycsb_user_rows'] = $this->maxClients*10000;
+          
+          // determine number of steps
+          $steps = 0;
+          foreach(array('test_clients', 'test_rate', 'test_time') as $p) if (count($this->options[$p]) > $steps) $steps = count($this->options[$p]);
+          
+          $this->options['test_processes'] = $this->evaluateExpression($this->options['test_processes']);
+          
+          // create steps
+          $stepStart = 0;
+          $maxMins = 0;
+          for($i = 0; $i<$steps; $i++) {
+            $this->steps[$i] = array('clients' => isset($this->options['test_clients'][$i]) ? $this->options['test_clients'][$i] : $this->options['test_clients'][$steps % count($this->options['test_clients'])],
+                                     'rate' => isset($this->options['test_rate'][$i]) ? $this->options['test_rate'][$i] : $this->options['test_rate'][$steps % count($this->options['test_rate'])],
+                                     'start' => $stepStart,
+                                     'time' => isset($this->options['test_time'][$i]) ? $this->options['test_time'][$i] : $this->options['test_time'][$steps % count($this->options['test_time'])]);
+            $this->steps[$i]['stop'] = $this->steps[$i]['start'] + $this->steps[$i]['time'];
+            $stepStart = $this->steps[$i]['stop'];
+            if (($fl = floor($this->steps[$i]['time']/60)) > $maxMins) $maxMins = $fl;
+            print_msg(sprintf('Added test step; processes=%d; clients=%d; rate=%d req/sec; start=%d secs; stop=%d secs; time=%d secs', 
+                              $this->options['test_processes'], 
+                              $this->steps[$i]['clients'], 
+                              $this->steps[$i]['rate'], 
+                              $this->steps[$i]['start'], 
+                              $this->steps[$i]['stop'], 
+                              $this->steps[$i]['time']), 
+                              $this->verbose, __FILE__, __LINE__);
           }
         }
+        
+        // reduce steady_state_window if it is larger than the longest test step
+        if ($maxMins < 1) $maxMins = 1;
+        if ($maxMins < $this->options['steady_state_window']) {
+          print_msg(sprintf('Reducing steady_state_window from %d to %d - the max duration of any given test', $this->options['steady_state_window'], $maxMins), $this->verbose, __FILE__, __LINE__);
+          $this->options['steady_state_window'] = $maxMins;
+        }
+        
+        // database dump file
+        if (isset($this->options['db_dump']) && is_dir($this->options['db_dump'])) $this->options['db_dump'] = str_replace('//', '/', $this->options['db_dump'] . '/oltp-[benchmark]-[subtest]-[scalefactor]-[db_type].sql');
+        if (isset($this->options['db_dump'])) $this->options['db_dump'] = str_replace('[db_type]', $this->options['db_type'], $this->options['db_dump']);
+        
+        // mysql or postgres
+        $this->mysqlOrPostgres = $this->options['db_type'] == 'mysql' || $this->options['db_type'] == 'postgres';
+        
       }
     }
     return $this->options;
+  }
+  
+  /**
+   * returns the scale factor to use for this test
+   * @return int
+   */
+  private function getScaleFactor() {
+    $factor = NULL;
+    switch($this->test) {
+      case 'auctionmark':
+        $factor = round($this->options['auctionmark_customers']/1000);
+        break;
+      case 'epinions':
+        $factor = round($this->options['epinions_users']/2000);
+        break;
+      case 'jpab':
+        $factor = $this->options['jpab_objects']*1;
+        break;
+      case 'seats':
+        $factor = round($this->options['seats_customers']/1000);
+        break;
+      case 'tatp':
+        $factor = $this->options['tatp_subscribers']*1;
+        break;
+      case 'tpcc':
+        $factor = $this->options['tpcc_warehouses']*1;
+        break;
+      case 'twitter':
+        $factor = round($this->options['twitter_users']/1000);
+        break;
+      case 'wikipedia':
+        $factor = round($this->options['wikipedia_pages']/1000);
+        break;
+      case 'ycsb':
+        $factor = round($this->options['ycsb_user_rows']/1000);
+        break;
+    }
+    return $factor;
   }
   
   /**
@@ -329,170 +751,607 @@ class TeraSortTest {
    * @return array
    */
   public static function getSerializedOptions($dir) {
-    return unserialize(file_get_contents(sprintf('%s/%s', $dir, self::TERASORT_TEST_OPTIONS_FILE_NAME)));
+    $ofile = sprintf('%s/%s', $dir, self::OLTP_BENCH_TEST_OPTIONS_FILE_NAME);
+    return file_exists($ofile) ? unserialize(file_get_contents($ofile)) : NULL;
   }
   
   /**
-   * initiates TeraSort testing. returns TRUE on success, FALSE otherwise
+   * returns the sub-tests associated with the current test
+   * @return array
+   */
+  private function getSubTests() {
+    $subtests = array();
+    switch($this->test) {
+      case 'jpab':
+        $subtests = $this->options['jpab_test'];
+        break;
+      default:
+        $subtests[] = $this->test;
+        break;
+    }
+    return $subtests;
+  }
+  
+  /**
+   * returns the test weights to use as an array of values
+   * @param string $test optional test to return weight for - otherwise 
+   * returned for $this->test
+   * @return array
+   */
+  private function getTestWeights($test=NULL) {
+    $weights = array();
+    $params = NULL;
+    switch($test ? $test : $this->test) {
+      case 'auctionmark':
+        $params = array('auctionmark_ratio_get_item',
+                        'auctionmark_ratio_get_user_info',
+                        'auctionmark_ratio_new_bid',
+                        'auctionmark_ratio_new_comment',
+                        'auctionmark_ratio_new_comment_response',
+                        'auctionmark_ratio_new_feedback',
+                        'auctionmark_ratio_new_item',
+                        'auctionmark_ratio_new_purchase',
+                        'auctionmark_ratio_update_item');
+        break;
+      case 'epinions':
+        $params = array('epinions_ratio_get_review_item_id',
+                        'epinions_ratio_get_reviews_user',
+                        'epinions_ratio_get_average_rating_trusted_user',
+                        'epinions_ratio_get_average_rating',
+                        'epinions_ratio_get_item_reviews_trusted_user',
+                        'epinions_ratio_update_user_name',
+                        'epinions_ratio_update_item_title',
+                        'epinions_ratio_update_review_rating',
+                        'epinions_ratio_update_trust_rating');
+        break;
+      case 'jpab':
+        $params = array('jpab_ratio_delete',
+                        'jpab_ratio_persist',
+                        'jpab_ratio_retrieve',
+                        'jpab_ratio_update');
+        break;
+      case 'resourcestresser':
+        $params = array('resourcestresser_ratio_cpu1',
+                        'resourcestresser_ratio_cpu2',
+                        'resourcestresser_ratio_io1',
+                        'resourcestresser_ratio_io2',
+                        'resourcestresser_ratio_contention1',
+                        'resourcestresser_ratio_contention2');
+        break;
+      case 'seats':
+        $params = array('seats_ratio_delete_reservation',
+                        'seats_ratio_find_flights',
+                        'seats_ratio_find_open_seats',
+                        'seats_ratio_new_reservation',
+                        'seats_ratio_update_customer',
+                        'seats_ratio_update_reservation');
+        break;
+      case 'tatp':
+        $params = array('tatp_ratio_delete_call_forwarding',
+                        'tatp_ratio_get_access_data',
+                        'tatp_ratio_get_new_destination',
+                        'tatp_ratio_get_subscriber_data',
+                        'tatp_ratio_insert_call_forwarding',
+                        'tatp_ratio_update_location',
+                        'tatp_ratio_update_subscriber_data');
+        break;
+      case 'tpcc':
+        $params = array('tpcc_ratio_delivery',
+                        'tpcc_ratio_new_order',
+                        'tpcc_ratio_order_status',
+                        'tpcc_ratio_payment',
+                        'tpcc_ratio_stock_level');
+        break;
+      case 'twitter':
+        $params = array('twitter_ratio_get_tweet',
+                        'twitter_ratio_get_tweet_following',
+                        'twitter_ratio_get_followers',
+                        'twitter_ratio_get_user_tweets',
+                        'twitter_ratio_insert_tweet');
+        break;
+      case 'wikipedia':
+        $params = array('wikipedia_ratio_add_watch_list',
+                        'wikipedia_ratio_remove_watch_list',
+                        'wikipedia_ratio_update_page',
+                        'wikipedia_ratio_get_page_anonymous',
+                        'wikipedia_ratio_get_page_authenticated');
+        break;
+      case 'ycsb':
+        $params = array('ycsb_ratio_read',
+                        'ycsb_ratio_insert',
+                        'ycsb_ratio_scan',
+                        'ycsb_ratio_update',
+                        'ycsb_ratio_delete',
+                        'ycsb_ratio_read_modify_write');
+        break;
+    }
+    if ($params) {
+      foreach($params as $p) $weights[] = isset($this->options[$p]) ? $this->options[$p] : 0;
+    }
+    return $weights;
+  }
+  
+  /**
+   * returns the transaction types for this test as an ordered array of name/id 
+   * pairs. If ID is FALSE, it will not be included in the config
+   * @return array
+   */
+  private function getTransactionTypes() {
+    $types = array();
+    switch($this->test) {
+      case 'auctionmark':
+        $types['GetItem'] = FALSE;
+        $types['GetUserInfo'] = FALSE;
+        $types['NewBid'] = FALSE;
+        $types['NewComment'] = FALSE;
+        $types['NewCommentResponse'] = FALSE;
+        $types['NewFeedback'] = FALSE;
+        $types['NewItem'] = FALSE;
+        $types['NewPurchase'] = FALSE;
+        $types['UpdateItem'] = FALSE;
+        break;
+      case 'epinions':
+        $types['GetReviewItemById'] = FALSE;
+        $types['GetReviewsByUser'] = FALSE;
+        $types['GetAverageRatingByTrustedUser'] = FALSE;
+        $types['GetItemAverageRating'] = FALSE;
+        $types['GetItemReviewsByTrustedUser'] = FALSE;
+        $types['UpdateUserName'] = FALSE;
+        $types['UpdateItemTitle'] = FALSE;
+        $types['UpdateReviewRating'] = FALSE;
+        $types['UpdateTrustRating'] = FALSE;
+        break;
+      case 'jpab':
+        $types['Persist'] = FALSE;
+        $types['Retrieve'] = FALSE;
+        $types['Update'] = FALSE;
+        $types['Delete'] = FALSE;
+        break;
+      case 'resourcestresser':
+        $types['CPU1'] = FALSE;
+        $types['CPU2'] = FALSE;
+        $types['IO1'] = FALSE;
+        $types['IO2'] = FALSE;
+        $types['Contention1'] = FALSE;
+        $types['Contention2'] = FALSE;
+        break;
+      case 'seats':
+        $types['DeleteReservation'] = FALSE;
+        $types['FindFlights'] = FALSE;
+        $types['FindOpenSeats'] = FALSE;
+        $types['NewReservation'] = FALSE;
+        $types['UpdateCustomer'] = FALSE;
+        $types['UpdateReservation'] = FALSE;
+        break;
+      case 'tatp':
+        $types['DeleteCallForwarding'] = FALSE;
+        $types['GetAccessData'] = FALSE;
+        $types['GetNewDestination'] = FALSE;
+        $types['GetSubscriberData'] = FALSE;
+        $types['InsertCallForwarding'] = FALSE;
+        $types['UpdateLocation'] = FALSE;
+        $types['UpdateSubscriberData'] = FALSE;
+        break;
+      case 'tpcc':
+        $types['NewOrder'] = FALSE;
+        $types['Payment'] = FALSE;
+        $types['OrderStatus'] = FALSE;
+        $types['Delivery'] = FALSE;
+        $types['StockLevel'] = FALSE;
+        break;
+      case 'twitter':
+        $types['GetTweet'] = FALSE;
+        $types['GetTweetsFromFollowing'] = FALSE;
+        $types['GetFollowers'] = FALSE;
+        $types['GetUserTweets'] = FALSE;
+        $types['InsertTweet'] = FALSE;
+        break;
+      case 'wikipedia':
+        $types['AddWatchList'] = FALSE;
+        $types['RemoveWatchList'] = FALSE;
+        $types['UpdatePage'] = FALSE;
+        $types['GetPageAnonymous'] = FALSE;
+        $types['GetPageAuthenticated'] = FALSE;
+        break;
+      case 'ycsb':
+        $types['ReadRecord'] = FALSE;
+        $types['InsertRecord'] = FALSE;
+        $types['ScanRecord'] = FALSE;
+        $types['UpdateRecord'] = FALSE;
+        $types['DeleteRecord'] = FALSE;
+        $types['ReadModifyWriteRecord'] = FALSE;
+        break;
+    }
+    return $types;
+  }
+  
+  /**
+   * converts $mb megabytes to the associated $param value
+   * @param float $mb the megabytes to convert with
+   * @param string $param the param to convert
+   * @return int
+   */
+  private function mbToParam($mb, $param) {
+    $val = NULL;
+    switch($param) {
+      case 'auctionmark_customers':
+        $val = 1000*round($mb/160);
+        if ($val < 1000) $val = 1000;
+        break;
+      case 'epinions_users':
+        $val = 2000*round($mb/30);
+        if ($val < 2000) $val = 2000;
+        break;
+      case 'seats_customers':
+        $val = 1000*round($mb/180);
+        if ($val < 1000) $val = 1000;
+        break;
+      case 'tatp_subscribers':
+        $val = round($mb/95);
+        if ($val < 1) $val = 1;
+        break;
+      case 'tpcc_warehouses':
+        $val = round($mb/110);
+        if ($val < 1) $val = 1;
+        break;
+      case 'twitter_users':
+        $val = 1000*round($mb/8);
+        if ($val < 1000) $val = 1000;
+        break;
+      case 'wikipedia_pages':
+        $val = 1000*round($mb/300);
+        if ($val < 1000) $val = 1000;
+        break;
+      case 'ycsb_user_rows':
+        $val = 1000*round($mb/4);
+        if ($val < 1000) $val = 1000;
+        break;
+    }
+    return $val;
+  }
+  
+  /**
+   * returns TRUE if OLTP-Bench has been built already
    * @return boolean
    */
+  private static function oltpBenchIsBuilt() {
+    return file_exists(dirname(__FILE__) . '/oltpbench/build/com/oltpbenchmark/DBWorkload.class');
+  }
+  
+  /**
+   * initiates OltpBench testing. returns the number of tests completed 
+   * successfully
+   * @return int
+   */
   public function test() {
-    
-    $rrdStarted = isset($this->options['collectd_rrd']) ? ch_collectd_rrd_start($this->options['collectd_rrd_dir'], isset($this->options['verbose'])) : FALSE;
-    
+    $success = 0;
     $this->getRunOptions();
-    $this->options['test_started'] = date('Y-m-d H:i:s');
     
-    $cmds = array();
-    $cmds['teragen'] = sprintf('hadoop jar%s teragen%s%s %d %s', 
-                       isset($this->options['hadoop_examples_jar']) ? ' ' . $this->options['hadoop_examples_jar'] : '',
-                       isset($this->options['teragen_args']) ? ' -D' . implode(' -D', $this->options['teragen_args']) : '',
-                       isset($this->options['tera_args']) ? ' -D' . implode(' -D', $this->options['tera_args']) : '',
-                       $this->options['teragen_rows'], $this->options['teragen_dir']);
-    $cmds['terasort'] = sprintf('hadoop jar%s terasort%s%s %s %s',
-                       isset($this->options['hadoop_examples_jar']) ? ' ' . $this->options['hadoop_examples_jar'] : '',
-                       isset($this->options['terasort_args']) ? ' -D' . implode(' -D', $this->options['terasort_args']) : '',
-                       isset($this->options['tera_args']) ? ' -D' . implode(' -D', $this->options['tera_args']) : '',
-                       $this->options['teragen_dir'], $this->options['terasort_dir']);
-    $cmds['teravalidate'] = sprintf('hadoop jar%s teravalidate%s%s %s %s',
-                       isset($this->options['hadoop_examples_jar']) ? ' ' . $this->options['hadoop_examples_jar'] : '',
-                       isset($this->options['teravalidate_args']) ? ' -D' . implode(' -D', $this->options['teravalidate_args']) : '',
-                       isset($this->options['tera_args']) ? ' -D' . implode(' -D', $this->options['tera_args']) : '',
-                       $this->options['terasort_dir'], $this->options['teravalidate_dir']);
-    $purge = array();
-    
-    foreach($cmds as $prog => $cmd) {
-      $dir = $this->options[sprintf('%s_dir', $prog)];
-      // purge existing directory if necessary
-      exec(sprintf('hadoop fs -rm -r %s >/dev/null 2>&1', $dir));
-      $this->options[sprintf('%s_cmd', $prog)] = $cmd;
-      $success = FALSE;
-      print_msg($cmd, isset($this->options['verbose']), __FILE__, __LINE__);
-      $ofile = sprintf('%s/%s.out', $this->options['output'], $prog);
-      $xfile = sprintf('%s/%s.status', $this->options['output'], $prog);
-      if (isset($this->options['hadoop_heapsize'])) {
-        print_msg(sprintf('Setting heapsize to %s for %s', $this->options['hadoop_heapsize'], $prog), isset($this->options['verbose']), __FILE__, __LINE__);
-        $cmd = sprintf('export HADOOP_HEAPSIZE=%s;%s', $this->options['hadoop_heapsize'], $cmd);
-      }
-      $cmd = sprintf('%s >%s 2>&1 | echo $? >%s', $cmd, $ofile, $xfile);
-      $start = time();
-      passthru($cmd);
-      $duration = time() - $start;
-      $ecode = trim(file_get_contents($xfile));
-      $ecode = strlen($ecode) && is_numeric($ecode) ? $ecode*1 : NULL;
-      unlink($xfile);
-      if (file_exists($ofile) && !filesize($ofile)) unlink($ofile);
-      if ($ecode !== 0) {
-        print_msg(sprintf('Unable run %s - exit code %d', $prog, $ecode), isset($this->options['verbose']), __FILE__, __LINE__, TRUE);
-      }
-      else {
-        // check if _SUCCESS file exists
-        $ecode = exec(sprintf('hadoop fs -ls %s | grep SUCCESS >/dev/null 2>&1;echo $?', $dir));
-        $ecode = strlen($ecode) && is_numeric($ecode) ? $ecode*1 : NULL;
-        if ($ecode === 0) {
-          $success = TRUE;
-          print_msg(sprintf('%s finished successfully', $prog), isset($this->options['verbose']), __FILE__, __LINE__); 
-        }
-        else print_msg(sprintf('Unable run %s - %s/_SUCCESS does not exist in hdfs', $prog, $dir), isset($this->options['verbose']), __FILE__, __LINE__, TRUE);
-      }
-      
-      if (!$success) {
-        $this->options[sprintf('%s_failed', $prog)] = TRUE;
-        break;
-      }
-      else {
-        $this->options[sprintf('%s_time', $prog)] = $duration;
-        // determine reduce phase times
-        $mstart = NULL;
-        $pstart = NULL;
-        $phase = NULL;
-        $mkey = sprintf('%s_map_time', $prog);
-        foreach(file($ofile) as $line) {
-          if (preg_match('/([0-9]{2}:[0-9]{2}:[0-9]{2}).*map\s+([0-9]+)%.*reduce\s+([0-9]+)%/', trim($line), $m)) {
-            $time = strtotime($m[1]);
-            // start time was day prior
-            if ($time < $pstart) $time += (24*60)*60;
-            
-            if (!$mstart) $mstart = $time;
-            
-            $perc = $m[2]*1;
-            if ($perc == 100 && !isset($this->options[$mkey])) $this->options[$mkey] = $time - $mstart;
-            
-            $perc = $m[3]*1;
-            if ($perc > 0) {
-              $nphase = $perc <= 33 ? 1 : ($perc <= 66 ? 2 : 3);
-              if ($phase != $nphase || $perc == 100) {
-                if ($phase) {
-                  $duration = ($perc == 100 ? $time : $ltime) - $pstart;
-                  $pstart = $ltime;
-                  $this->options[sprintf('%s_reduce_p%d', $prog, $phase)] = $duration;
-                  print_msg(sprintf('Set duration of %s_reduce_p%d=%d', $prog, $phase, $duration), isset($this->options['verbose']), __FILE__, __LINE__); 
-                }
-                $phase = $nphase;
+    foreach($this->options['test'] as $test) {
+      $rrdStarted = isset($this->options['collectd_rrd']) ? ch_collectd_rrd_start($this->options['collectd_rrd_dir'], $this->verbose) : FALSE;
+      $this->test = $test;
+      $dbName = str_replace('[benchmark]', $test, $this->options['db_name']);
+      foreach($this->getSubTests() as $subtest) {
+        $this->subtest = $subtest;
+        $testId = $test . ($test != $subtest ? '-' . $subtest : '');
+        if ($config = $this->buildOltpBenchConfig()) {
+          
+          // idle test mode
+          if (isset($this->options['test_idle'])) {
+            foreach($this->steps as $step) {
+              print_msg(sprintf('Sleeping for %d seconds for test %s due to --test_idle flag', $step['time'], $testId), $this->verbose, __FILE__, __LINE__);
+              sleep($step['time']);
+              $success++;
+            }
+            continue;
+          }
+          
+          $dropDbCmd = NULL;
+          print_msg(sprintf('Starting test %s with %d processes', $testId, $this->options['test_processes']), $this->verbose, __FILE__, __LINE__);
+          
+          // create and load database
+          if (!isset($this->options['reportdebug']) && isset($this->options['db_load'])) {
+            $bcmd = NULL;
+            if ($this->mysqlOrPostgres) {
+              $c = $this->options['db_type'] == 'mysql' ? 'mysql' : 'psql';
+              if (!validate_dependencies(array($c => $c))) {
+                $bcmd = sprintf('%s%s -h %s %s -%s %s %s',
+                               $this->options['db_type'] == 'postgres' && $this->options['db_pswd'] ? 'export PGPASSWORD=' . $this->options['db_pswd'] . '; ' : '',
+                               $c,
+                               $this->options['db_host'],
+                               isset($this->options['db_port']) ? ($this->options['db_type'] == 'mysql' ? '-P ' : '-p ') . $this->options['db_port'] : '',
+                               $this->options['db_type'] == 'mysql' ? 'u' : 'U',
+                               $this->options['db_user'],
+                               $this->options['db_type'] == 'mysql' && $this->options['db_pswd'] ? '-p"' . $this->options['db_pswd'] . '"' : '');
               }
             }
-            else if (!$phase) $pstart = $time;
+            // attempt to drop and create database
+            if ($bcmd && isset($this->options['db_create'])) {
+              foreach(array('drop', 'create') as $q) {
+                $cmd = sprintf('%s%s %s "%s database %s" >/dev/null 2>&1', 
+                               $bcmd, 
+                               $this->options['db_type'] == 'postgres' ? ' postgres' : '', $this->options['db_type'] == 'mysql' ? '-e' : '-c', $q, $dbName);
+                if (!$dropDbCmd) $dropDbCmd = $cmd;
+                $ecode = trim(exec($cmd));
+                if ($ecode > 0) print_msg(sprintf('Unable to %s database %s - exit code %d', $q, $dbName, $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
+                else print_msg(sprintf('Successfully executed %s database %s', $q, $dbName), $this->verbose, __FILE__, __LINE__);
+              }
+            }
+            $load = TRUE;
+            // if test and sub-test are the same, replace string with just test
+            if ($dump = isset($this->options['db_dump']) ? str_replace('[scalefactor]', $this->getScaleFactor(), str_replace('[subtest]', $subtest, str_replace('[benchmark]', $test, $this->options['db_dump']))) : NULL) $dump = str_replace(sprintf('%s-%s', $test, $test), $test, $dump);
             
-            $ltime = $time;
-            if ($perc == 100) break;
-          }
-        }
-        
-        $purge[$prog] = $dir;
-        foreach(explode("\n", trim(shell_exec(sprintf('hadoop fs -ls %s/_logs/history 2>/dev/null', $dir)))) as $line) {
-          if (preg_match('/Found/', trim($line))) continue;
-          $pieces = explode(' ', trim($line));
-          if ($file = $pieces[count($pieces) - 1]) {
-            $ofile = sprintf('%s/%s.%s', $this->options['output'], $prog, preg_match('/xml$/', $file) ? 'xml' : 'log');
-            exec(sprintf('hadoop fs -cat %s >%s 2>/dev/null', $file, $ofile));
-            if (file_exists($ofile) && filesize($ofile)) print_msg(sprintf('Successfully exported output file %s', basename($ofile)), isset($this->options['verbose']), __FILE__, __LINE__);
-            else {
-              print_msg(sprintf('Unable to export output file %s', basename($ofile)), isset($this->options['verbose']), __FILE__, __LINE__, TRUE);
-              exec(sprintf('rm -f %s', $ofile));
+            if ($bcmd && $dump && file_exists($dump) && $this->mysqlOrPostgres) {
+              $cmd = sprintf('%s %s < %s', $bcmd, $dbName, $dump);
+              print_msg(sprintf('Attempting to import existing database dump file (size %s MB) - this may take a while', round((filesize($dump)/1024)/1024, 2)), $this->verbose, __FILE__, __LINE__);
+              $ecode = trim(exec($cmd));
+              if ($ecode > 0) print_msg(sprintf('Failed to load database - exit code %d', $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
+              else {
+                print_msg(sprintf('Successfully loaded database from dump file %s', $dump), $this->verbose, __FILE__, __LINE__);
+                $load = FALSE;
+              }
+            }
+            else if ($dump && $this->mysqlOrPostgres) print_msg(sprintf('Database dump file %s does not exist for load', $dump), $this->verbose, __FILE__, __LINE__);
+            
+            if ($load) {
+              $cmd = sprintf('cd %s && ./oltpbenchmark -b %s -c %s%s --load=true -o %s/%s >%s/%s-load.out 2>%s/%s-load.err', 
+                            dirname(__FILE__) . '/oltpbench', 
+                            $test, 
+                            $config,
+                            isset($this->options['db_create']) ? ' --create=true' : '',
+                            $this->options['output'],
+                            $testId,
+                            $this->options['output'],
+                            $testId,
+                            $this->options['output'],
+                            $testId);
+              print_msg(sprintf('Loading database with test data - this may take a while'), $this->verbose, __FILE__, __LINE__);
+              passthru($cmd);
+              if (isset($this->options['db_dump']) && $this->mysqlOrPostgres) {
+                $cmd = sprintf('%s%s -h %s %s -%s %s %s %s > %s',
+                               $this->options['db_type'] == 'postgres' && $this->options['db_pswd'] ? 'export PGPASSWORD=' . $this->options['db_pswd'] . '; ' : '',
+                               $this->options['db_type'] == 'mysql' ? 'mysqldump' : 'pg_dump',
+                               $this->options['db_host'],
+                               isset($this->options['db_port']) ? ($this->options['db_type'] == 'mysql' ? '-P ' : '-p ') . $this->options['db_port'] : '',
+                               $this->options['db_type'] == 'mysql' ? 'u' : 'U',
+                               $this->options['db_user'],
+                               $this->options['db_type'] == 'mysql' && $this->options['db_pswd'] ? '-p"' . $this->options['db_pswd'] . '"' : '-w -c',
+                               $dbName,
+                               $dump);
+                print_msg(sprintf('Attempting to export database dump to file - this may take a while'), $this->verbose, __FILE__, __LINE__);
+                $ecode = trim(exec($cmd));
+                if (!file_exists($dump) || !filesize($dump) || $ecode > 0) {
+                  exec(sprintf('rm -f %s', $dump));
+                  print_msg(sprintf('Failed to dump database - exit code %d', $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
+                }
+                else {
+                  print_msg(sprintf('Successfully dumped database - export file size is %s MB', round((filesize($dump)/1024)/1024, 2)), $this->verbose, __FILE__, __LINE__);
+                  $load = FALSE;
+                }
+              }
             }
           }
-        }
-        if ($prog != 'teravalidate' && isset($this->options['teragen_balance'])) {
-          print_msg(sprintf('attempting to rebalance hdfs cluster because --teragen_balance was set'), isset($this->options['verbose']), __FILE__, __LINE__);
-          passthru(sprintf('hdfs balancer -threshold %d %s2>&1', $this->options['teragen_balance'], isset($this->options['verbose']) ? '' : '>/dev/null '));
-        }
-      }
-    }
-    
-    // determine blocksize and replication factors
-    foreach($purge as $prog => $dir) {
-      foreach(explode("\n", shell_exec(sprintf('hdfs dfs -ls -R %s', $dir))) as $line) {
-        if (preg_match('/^\-rw/', trim($line)) && preg_match('/part\-/', trim($line))) {
-          $pieces = explode(' ', trim($line));
-          $file = $pieces[count($pieces) - 1];
-          print_msg(sprintf('Attempting to get %s block size and replication factor using file %s', $prog, $file), isset($this->options['verbose']), __FILE__, __LINE__);
-          $pieces = explode(' ', trim(shell_exec(sprintf('hdfs dfs -stat "%s" %s', '%o %r', $file))));
-          if (count($pieces) == 2 && is_numeric($pieces[0]) && is_numeric($pieces[1])) {
-            $blocksize = round(($pieces[0]/1024)/1024);
-            $replication = $pieces[1]*1;
-            $this->options[sprintf('%s_blocksize', $prog)] = $blocksize;
-            $this->options[sprintf('%s_replication', $prog)] = $replication;
-            print_msg(sprintf('Successfully obtained %s blocksize [%d MB] and replication factor [%d]', $prog, $blocksize, $replication), isset($this->options['verbose']), __FILE__, __LINE__);
+
+          if (!isset($this->options['db_load_only'])) {
+            if (!isset($this->options['reportdebug'])) {
+              // generate execution script
+              $fp = fopen($script = sprintf('%s/%s.sh', $this->options['output'], $test), 'w');
+              fwrite($fp, "#!/bin/bash\n");
+              fwrite($fp, sprintf("cd %s\n", dirname(__FILE__) . '/oltpbench'));
+              for($i=0; $i<$this->options['test_processes']; $i++) {
+                $bfile = sprintf('%s/%s-p%d', $this->options['output'], $testId, $i+1);
+                exec(sprintf('rm -f %s*', $bfile));
+                fwrite($fp, sprintf("nohup ./oltpbenchmark -b %s -c %s --execute=true -s %d -o %s >%s.out 2>%s.err &\n",
+                      $test, 
+                      $config,
+                      $this->options['test_sample_interval'],
+                      $bfile,
+                      $bfile,
+                      $bfile));
+              }
+              fwrite($fp, "wait\n");
+              fclose($fp);
+              exec(sprintf('chmod 755 %s', $script));
+
+              print_msg(sprintf('Executing test script %s', $script), $this->verbose, __FILE__, __LINE__);
+              $started = time();
+              if (!isset($this->options['test_started'])) $this->options['test_started'] = date('Y-m-d H:i:s');
+              passthru($script);
+            }
+            else {
+              $started = time();
+              print_msg('Skiping test execution due to use of --reportdebug', $this->verbose, __FILE__, __LINE__);
+            }
+            
+            print_msg('Test script execution complete - processing results', $this->verbose, __FILE__, __LINE__);
+            
+            // --db_create and --db_load were set - drop database
+            if (!isset($this->options['db_nodrop']) && $dropDbCmd) {
+              $ecode = trim(exec($dropDbCmd));
+              if ($ecode > 0) print_msg(sprintf('Unable to drop database %s - exit code %d', $dbName, $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
+              else print_msg(sprintf('Successfully dropped database %s', $dbName), $this->verbose, __FILE__, __LINE__);
+            }
+            
+            // process test results
+            for($i=0; $i<$this->options['test_processes']; $i++) {
+              $bfile = sprintf('%s/%s-p%d', $this->options['output'], $testId, $i+1);
+              // don't need this file - its a duplicate of the config
+              exec(sprintf('rm -f %s.ben.cnf', $bfile));
+              // db.cnf:  RDBMS settings
+              // err:     stderr
+              // out:     stdout
+              // raw:     raw test results (entries for every test client in this process)
+              // res:     results per test_sample_interval (aggregated for all test clients)
+              // summary: summarized results
+              $res = $bfile . '.res';
+              if (file_exists($res) && filesize($res)) {
+                print_msg(sprintf('Processing results in %s', $res), $this->verbose, __FILE__, __LINE__);
+                foreach(file($res) as $x => $line) {
+                  if ($x > 0 && trim($line) && count($cols = explode(',', trim($line))) > 1 && is_numeric($cols[0]) && $cols[1] > 0) {
+                    $secs = $cols[0];
+                    $stepIndex = 0;
+                    // determine step index
+                    foreach($this->steps as $n => $step) {
+                      if ($secs >= $step['start'] && $secs < $step['stop']) $stepIndex = $n;
+                    }
+                    $key = $testId . '-' . $stepIndex;
+                    print_msg(sprintf('Processing results row %s [process=%d; step=%d; clients=%d; time=%d secs; test time=%d secs]', $key, $i+1, $stepIndex+1, $this->steps[$stepIndex]['clients'], $this->steps[$stepIndex]['time'], $secs), $this->verbose, __FILE__, __LINE__);
+                    
+                    if (!isset($this->results[$key])) {
+                      $success++;
+                      $this->results[$key] = array('test' => $test,
+                                                   'step' => $stepIndex+1,
+                                                   'processes' => $this->options['test_processes'],
+                                                   'clients' => $this->steps[$stepIndex]['clients'],
+                                                   'time' => $this->steps[$stepIndex]['time'],
+                                                   'warmup' => isset($this->options['test_warmup']) && $stepIndex === 0,
+                                                   'start' => $started + $this->steps[$stepIndex]['start'],
+                                                   'stop' => $started + $this->steps[$stepIndex]['stop']);
+                      if ($test == 'jpab') $this->results[$key]['jpab_test'] = $subtest;
+                      if (!$this->noRate) $this->results[$key]['rate'] = $this->steps[$stepIndex]['rate'];
+                    }
+                    foreach(array('throughput_values', 
+                                  'latency_values', 
+                                  'latency_values_min',
+                                  'latency_values_25',
+                                  'latency_values_50',
+                                  'latency_values_75',
+                                  'latency_values_90',
+                                  'latency_values_95',
+                                  'latency_values_99',
+                                  'latency_values_max') as $idx => $p) {
+                      if (isset($cols[$idx + 1])) {
+                        if (!isset($this->results[$key][$p])) $this->results[$key][$p] = array();
+                        if (!isset($this->results[$key][$p][$secs])) $this->results[$key][$p][$secs] = array();              
+                        $this->results[$key][$p][$secs][] = $cols[$idx + 1]; 
+                      }
+                    }
+                  }
+                }
+              }
+              else print_msg(sprintf('Results file %s does not exist or is empty', $res), $this->verbose, __FILE__, __LINE__, TRUE);
+            }
+            if (isset($this->results[$testId . '-0'])) print_msg(sprintf('%s test execution successful', $testId), $this->verbose, __FILE__, __LINE__);
+            else if ($test != 'resourcestresser') print_msg(sprintf('%s test execution failed or did not produce any results', $testId), $this->verbose, __FILE__, __LINE__, TRUE);
+            else print_msg('resourcestresser does not produce metrics', $this->verbose, __FILE__, __LINE__);
           }
-          else print_msg(sprintf('Unable to obtain blocksize and replication factor %s. Output: %s', $prog, implode(' ', $pieces)), isset($this->options['verbose']), __FILE__, __LINE__, TRUE);
-          break;
+          else print_msg(sprintf('%s test execution skipped due to --db_load_only flag', $test), $this->verbose, __FILE__, __LINE__);
+        }
+        else print_msg(sprintf('Unable to generate OLTP-Bench XML configuration for test %s', $test), $this->verbose, __FILE__, __LINE__, TRUE);
+      }
+      
+      // collectd stats archives are test specific
+      if ($rrdStarted) ch_collectd_rrd_stop($this->options['collectd_rrd_dir'], $this->options['output'], $this->verbose);
+      if (is_file($archive = sprintf('%s/collectd-rrd.zip', $this->options['output']))) {
+        $narchive = str_replace('.zip', '-' . $test . '.zip', $archive);
+        exec(sprintf('mv %s %s', $archive, $narchive));
+        print_msg(sprintf('Renamed collectd rrd archive from %s to %s', basename($archive), basename($narchive)), $this->verbose, __FILE__, __LINE__);
+      }
+    }
+    
+    // complete results calculations
+    foreach(array_keys($this->results) as $key) {
+      // for each second interval, take the sum for throughput or median for 
+      // latency and use the metrics from all seconds intervals for the 
+      // aggregate result metrics
+      foreach(array( 'throughput_values', 
+                     'latency_values', 
+                     'latency_values_min',
+                     'latency_values_25',
+                     'latency_values_50',
+                     'latency_values_75',
+                     'latency_values_90',
+                     'latency_values_95',
+                     'latency_values_99',
+                     'latency_values_max') as $p) {
+        if (isset($this->results[$key][$p])) {
+          $metrics = array();
+          foreach(array_keys($this->results[$key][$p]) as $secs) {
+            if ($this->results[$key][$p][$secs]) {
+              $this->results[$key][$p][$secs] = preg_match('/^latency/', $p) ? round(get_percentile($this->results[$key][$p][$secs])) : array_sum($this->results[$key][$p][$secs]);
+              $metrics[] = $this->results[$key][$p][$secs];
+            }
+            else $this->results[$key][$p][$secs] = 0;
+          }
+          if (in_array($p, array('throughput_values', 'latency_values', 'latency_values_min', 'latency_values_max')) && $metrics) {
+            sort($metrics);
+            $bkey = str_replace('_values', '', $p);
+            if (!preg_match('/_min/', $p) && !preg_match('/_max/', $p)) {
+              $this->results[$key][$bkey] = round(get_mean($metrics));
+              $this->results[$key][sprintf('%s_stdev', $bkey)] = round(get_std_dev($metrics));
+              foreach(array(10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99) as $perc) {
+                $this->results[$key][sprintf('%s_%d', $bkey, $perc)] = round(get_percentile($metrics, $perc, preg_match('/^latency/', $p) ? TRUE : FALSE));
+              }
+              if (!preg_match('/^latency/', $p)) {
+                $this->results[$key][sprintf('%s_min', $bkey)] = $metrics[0];
+                $this->results[$key][sprintf('%s_max', $bkey)] = $metrics[count($metrics) - 1];
+              }
+            }
+            else if (preg_match('/_min/', $p)) $this->results[$key][sprintf('%s_min', $bkey)] = $metrics[0];
+            else if (preg_match('/_max/', $p)) $this->results[$key][sprintf('%s_max', $bkey)] = $metrics[count($metrics) - 1];
+          }
         }
       }
-    }
-    
-    // purge hdfs directories
-    if ($purge && !isset($this->options['no_purge'])) {
-      foreach($purge as $prog => $dir) {
-        print_msg(sprintf('Purging hdfs directory %s for %s', $dir, $prog), isset($this->options['verbose']), __FILE__, __LINE__);
-        passthru(sprintf('hadoop fs -rm -r %s', $dir));
+      // now determine latency at max throughput
+      $maxThroughput = 0;
+      $maxThroughputSecs = NULL;
+      foreach(array_keys($this->results[$key]['throughput_values']) as $secs) {
+        if ($this->results[$key]['throughput_values'][$secs] > $maxThroughput) {
+          $maxThroughput = $this->results[$key]['throughput_values'][$secs];
+          $maxThroughputSecs = $secs;
+        }
       }
+      if ($maxThroughput) $this->results[$key]['latency_at_max'] = $this->results[$key]['latency_values'][$maxThroughputSecs];
+      
+      // finally determine if/when steady state was achieved
+      $steadyState = array();
+      $steadyStateSamples = round(($this->options['steady_state_window']*60)/$this->options['test_sample_interval']);
+      // minimum of 5 measurements required
+      if ($steadyStateSamples < 1) $steadyStateSamples = 5;
+      print_msg(sprintf('Determining if steady state achieved using %d consecutive samples [window=%d mins; sample=%d secs]', $steadyStateSamples, $this->options['steady_state_window'], $this->options['test_sample_interval']), $this->verbose, __FILE__, __LINE__);
+      foreach(array_keys($this->results[$key]['throughput_values']) as $secs) {
+        $steadyState[] = $this->results[$key]['throughput_values'][$secs];
+        if (count($steadyState) >= $steadyStateSamples) {
+          if (($std = round(get_std_dev(array_slice($steadyState, count($steadyState) - $steadyStateSamples, $steadyStateSamples), 3))) <= $this->options['steady_state_threshold']) {
+            $this->results[$key]['steady_state'] = $secs;
+            print_msg(sprintf('Steady state achieved at %d seconds [stdev=%d]', $secs, $std), $this->verbose, __FILE__, __LINE__);
+            break; 
+          }
+          else print_msg(sprintf('Steady state not achieved at %d seconds [stdev=%d; <= %d required]', $secs, $std, $this->options['steady_state_threshold']), $this->verbose, __FILE__, __LINE__);
+        }
+      }
+      if (!isset($this->results[$key]['steady_state'])) print_msg(sprintf('Steady state was not achieved'), $this->verbose, __FILE__, __LINE__);
     }
     
-    if ($rrdStarted) ch_collectd_rrd_stop($this->options['collectd_rrd_dir'], $this->options['output'], isset($this->options['verbose']));
-    
-    $this->endTest();
+    $this->endTest($success);
     
     return $success;
+  }
+  
+  /**
+   * translates database isolation parameters: serializable, repeatable_read, 
+   * read_committed or read_uncommitted to the corresponding OLTP-Bench config
+   * value
+   * @param string $isolution the isolation parameter to translate
+   * @return string
+   */
+  public static function translateDbIsolation($isolation) {
+    $config = NULL;
+    switch($isolation) {
+      case 'serializable':
+        $config = 'TRANSACTION_SERIALIZABLE';
+        break;
+      case 'repeatable_read':
+        $config = 'TRANSACTION_REPEATABLE_READ';
+        break;
+      case 'read_committed':
+        $config = 'TRANSACTION_READ_COMMITTED';
+        break;
+      case 'read_uncommitted':
+        $config = 'TRANSACTION_READ_UNCOMMITTED';
+        break;
+    }
+    return $config;
   }
   
   /**
@@ -500,8 +1359,24 @@ class TeraSortTest {
    * dependencies (array is empty if all dependencies are valid)
    * @return array
    */
-  public static function validateDependencies() {
-    $dependencies = array('hadoop' => 'hadoop', 'hdfs' => 'hdfs', 'java' => 'java', 'zip' => 'zip');
+  public static function validateDependencies($options) {
+    $dependencies = array('java' => 'java', 'zip' => 'zip');
+    if (!OltpBenchTest::oltpBenchIsBuilt()) $dependencies['ant'] = 'ant';
+    // reporting dependencies
+    if (!isset($options['noreport']) || !$options['noreport']) {
+      $dependencies['gnuplot'] = 'gnuplot';
+      if (!isset($options['nopdfreport']) || !$options['nopdfreport']) $dependencies['wkhtmltopdf'] = 'wkhtmltopdf';
+    }
+    // mysqldump
+    if (isset($options['db_dump']) && $options['db_type'] == 'mysql') {
+      $dependencies['mysql'] = 'mysql-client';
+      $dependencies['mysqldump'] = 'mysql-client';
+    }
+    // mysqldump
+    if (isset($options['db_dump']) && $options['db_type'] == 'postgres') {
+      $dependencies['psql'] = 'postgresql-client';
+      $dependencies['pg_dump'] = 'postgresql-client';
+    }
     return validate_dependencies($dependencies);
   }
   
@@ -512,47 +1387,150 @@ class TeraSortTest {
    * @return array
    */
   public function validateRunOptions() {
-    $this->getRunOptions();
+    $options = $this->getRunOptions();
     $validate = array(
-      'hadoop_heapsize' => array('min' => 128),
-      'meta_map_reduce_version' => array('min' => 1, 'max' => 2, 'required' => TRUE),
-      'meta_storage_volumes' => array('min' => 1),
-      'meta_storage_volume_size' => array('min' => 1),
+      'auctionmark_customers' => array('min' => $this->maxClients*1000),
+      'auctionmark_ratio_get_item' => array('min' => 0),
+      'auctionmark_ratio_get_user_info' => array('min' => 0),
+      'auctionmark_ratio_new_bid' => array('min' => 0),
+      'auctionmark_ratio_new_comment' => array('min' => 0),
+      'auctionmark_ratio_new_comment_response' => array('min' => 0),
+      'auctionmark_ratio_new_feedback' => array('min' => 0),
+      'auctionmark_ratio_new_item' => array('min' => 0),
+      'auctionmark_ratio_new_purchase' => array('min' => 0),
+      'auctionmark_ratio_update_item' => array('min' => 0),
+      'epinions_ratio_get_review_item_id' => array('min' => 0),
+      'epinions_ratio_get_reviews_user' => array('min' => 0),
+      'epinions_ratio_get_average_rating_trusted_user' => array('min' => 0),
+      'epinions_ratio_get_average_rating' => array('min' => 0),
+      'epinions_ratio_get_item_reviews_trusted_user' => array('min' => 0),
+      'epinions_ratio_update_user_name' => array('min' => 0),
+      'epinions_ratio_update_item_title' => array('min' => 0),
+      'epinions_ratio_update_review_rating' => array('min' => 0),
+      'epinions_ratio_update_trust_rating' => array('min' => 0),
+      'epinions_users' => array('min' => $this->maxClients*2000),
+      'db_driver' => array('required' => TRUE),
+      'db_dump' => array('writedir' => TRUE),
+      'db_isolation' => array('option' => array('serializable', 'repeatable_read', 'read_committed', 'read_uncommitted'), 'required' => TRUE),
+      'db_port' => array('min' => 1000),
+      'db_type' => array('option' => array('mysql', 'db2', 'postgres', 'oracle', 'sqlserver', 'sqlite', 'hstore', 'hsqldb', 'h2', 'monetdb', 'nuodb'), 'required' => TRUE),
+      'db_url' => array('required' => TRUE),
+      'db_user' => array('required' => TRUE),
+      'jpab_objects' => array('min' => $this->maxClients*100000),
+      'jpab_ratio_delete' => array('min' => 0),
+      'jpab_ratio_persist' => array('min' => 0),
+      'jpab_ratio_retrieve' => array('min' => 0),
+      'jpab_ratio_update' => array('min' => 0),
+      'jpab_test' => array('option' => array('basic', 'collection', 'inheritance', 'indexing', 'graph')),
       'output' => array('write' => TRUE),
-      'teragen_balance' => array('min' => 3, 'max' => 50),
-      'teragen_rows' => array('min' => 1000000, 'required' => TRUE)
+      'resourcestresser_ratio_cpu1' => array('min' => 0),
+      'resourcestresser_ratio_cpu2' => array('min' => 0),
+      'resourcestresser_ratio_io1' => array('min' => 0),
+      'resourcestresser_ratio_io2' => array('min' => 0),
+      'resourcestresser_ratio_contention1' => array('min' => 0),
+      'resourcestresser_ratio_contention2' => array('min' => 0),
+      'seats_customers' => array('min' => 1000),
+      'seats_ratio_delete_reservation' => array('min' => 0),
+      'seats_ratio_find_flights' => array('min' => 0),
+      'seats_ratio_find_open_seats' => array('min' => 0),
+      'seats_ratio_new_reservation' => array('min' => 0),
+      'seats_ratio_update_customer' => array('min' => 0),
+      'seats_ratio_update_reservation' => array('min' => 0),
+      'steady_state_threshold' => array('min' => 1, 'max' => 100, 'required' => TRUE),
+      'steady_state_window' => array('min' => 1, 'max' => 30, 'required' => TRUE),
+      'tatp_ratio_delete_call_forwarding' => array('min' => 0),
+      'tatp_ratio_get_access_data' => array('min' => 0),
+      'tatp_ratio_get_new_destination' => array('min' => 0),
+      'tatp_ratio_get_subscriber_data' => array('min' => 0),
+      'tatp_ratio_insert_call_forwarding' => array('min' => 0),
+      'tatp_ratio_update_location' => array('min' => 0),
+      'tatp_ratio_update_subscriber_data' => array('min' => 0),
+      'tatp_subscribers' => array('min' => $this->maxClients*10),
+      'test' => array('option' => array('auctionmark', 'epinions', 'jpab', 'resourcestresser', 'seats', 'tatp', 'tpcc', 'twitter', 'wikipedia', 'ycsb'), 'required' => TRUE),
+      'test_clients' => array('min' => 1, 'required' => TRUE),
+      'test_clients_step' => array('min' => 1),
+      'test_processes' => array('min' => 1, 'required' => TRUE),
+      'test_rate' => array('min' => 1, 'required' => TRUE),
+      'test_rate_step' => array('min' => 1),
+      'test_sample_interval' => array('min' => 1, 'max' => 60, 'required' => TRUE),
+      'test_size_ratio' => array('min' => 1, 'max' => 100),
+      'test_time' => array('min' => 1, 'required' => TRUE),
+      'test_time_step' => array('min' => 1),
+      'tpcc_ratio_delivery' => array('min' => 0),
+      'tpcc_ratio_new_order' => array('min' => 0),
+      'tpcc_ratio_order_status' => array('min' => 0),
+      'tpcc_ratio_payment' => array('min' => 0),
+      'tpcc_ratio_stock_level' => array('min' => 0),
+      'tpcc_warehouses' => array('min' => $this->maxClients),
+      'twitter_ratio_get_tweet' => array('min' => 0),
+      'twitter_ratio_get_tweet_following' => array('min' => 0),
+      'twitter_ratio_get_followers' => array('min' => 0),
+      'twitter_ratio_get_user_tweets' => array('min' => 0),
+      'twitter_ratio_insert_tweet' => array('min' => 0),
+      'twitter_users' => array('min' => $this->maxClients*500),
+      'wikipedia_pages' => array('min' => 1000),
+      'wikipedia_ratio_add_watch_list' => array('min' => 0),
+      'wikipedia_ratio_remove_watch_list' => array('min' => 0),
+      'wikipedia_ratio_update_page' => array('min' => 0),
+      'wikipedia_ratio_get_page_anonymous' => array('min' => 0),
+      'wikipedia_ratio_get_page_authenticated' => array('min' => 0),
+      'ycsb_ratio_read' => array('min' => 0),
+      'ycsb_ratio_insert' => array('min' => 0),
+      'ycsb_ratio_scan' => array('min' => 0),
+      'ycsb_ratio_update' => array('min' => 0),
+      'ycsb_ratio_delete' => array('min' => 0),
+      'ycsb_ratio_read_modify_write' => array('min' => 0),
+      'ycsb_user_rows' => array('min' => $this->maxClients*10000)
     );
-    $validated = validate_options($this->options, $validate);
+    
+    $validated = validate_options($options, $validate);
     if (!is_array($validated)) $validated = array();
     
-    if (isset($this->options['hadoop_examples_jar']) && !file_exists($this->options['hadoop_examples_jar'])) {
-      $validated['hadoop_examples_jar'] = sprintf('%s file', $this->options['hadoop_examples_jar']);
+    // validate collectd rrd options
+    if (isset($options['collectd_rrd'])) {
+      if (!ch_check_sudo()) $validated['collectd_rrd'] = 'sudo privilege is required to use this option';
+      else if (!is_dir($options['collectd_rrd_dir'])) $validated['collectd_rrd_dir'] = sprintf('The directory %s does not exist', $options['collectd_rrd_dir']);
+      else if ((shell_exec('ps aux | grep collectd | wc -l')*1 < 2)) $validated['collectd_rrd'] = 'collectd is not running';
+      else if ((shell_exec(sprintf('find %s -maxdepth 1 -type d 2>/dev/null | wc -l', $options['collectd_rrd_dir']))*1 < 2)) $validated['collectd_rrd_dir'] = sprintf('The directory %s is empty', $options['collectd_rrd_dir']);
     }
-    foreach(array('tera_args', 'teragen_args', 'terasort_args', 'teravalidate_args') as $arg) {
-      if (isset($this->options[$arg]) && is_array($this->options[$arg])) {
-        foreach($this->options[$arg] as $a) {
-          if (!preg_match('/^[a-zA-Z0-9\.]+=[a-zA-Z0-9\.]+$/', $a)) {
-            $validated[$arg] = sprintf('%s argument value %s is not formats as [arg]=[val]', $arg, $a);
-          }
-        }
+    
+    // ratios for each test must sum to 100
+    foreach($options['test'] as $test) {
+      if (($sum = array_sum($this->getTestWeights($test))) != 100) {
+        $validated['test'] = sprintf('The sum of ratios for test %s must be 100 (currently %d)', $test, $sum);
+        break;
       }
     }
     
-    // validate hostname
-    $hostname = trim(shell_exec('hostname'));
-    if ($hostname == 'localhost' && file_exists('/etc/hostname')) {
-      // attempt to set correct hostname if localhost
-      exec(sprintf('sudo hostname %s', trim(file_get_contents('/etc/hostname'))));
-      $hostname = trim(shell_exec('hostname'));
+    if (!isset($validate['db_url']) && !preg_match('/^[a-zA-Z0-9]+:[a-zA-Z]+:\/\/[a-zA-Z0-9\.]+[\:0-9]*\/[a-zA-Z0-9]+$/', $options['db_url'])) $validated['db_url'] = sprintf('--db_url %s is not valid. Correct format for a JDBC URL is jdbc:[db_type]://[db_host]:[db_port]/[db_name]', $options['db_url']);
+      
+    // OLTP-Bench is not built yet
+    if (!OltpBenchTest::oltpBenchIsBuilt()) {
+      print_msg('OLTP-Bench has not been built yet. Attempting to build using ant', $this->verbose, __FILE__, __LINE__);
+      $buffer = shell_exec(sprintf('cd %s && ant', dirname(__FILE__) . '/oltpbench'));
+      if (strpos($buffer, 'oracle.sql.TIMESTAMP')) {
+        print_msg('Build Failed - attempting re-build with oracle.sql.TIMESTAMP reference removed from SQLUtil.java', $this->verbose, __FILE__, __LINE__, TRUE);
+        unlink($f = dirname(__FILE__) . '/oltpbench/src/com/oltpbenchmark/util/SQLUtil.java');
+        exec(sprintf('cp %s %s', dirname(__FILE__) . '/SQLUtil-patched.java', $f));
+        passthru(sprintf('cd %s && ant', dirname(__FILE__) . '/oltpbench'));
+      }
+      if (OltpBenchTest::oltpBenchIsBuilt()) print_msg('OLTP-Bench built successfully', $this->verbose, __FILE__, __LINE__);
+      else {
+        print_msg('Unable to build OLTP-Bench', $this->verbose, __FILE__, __LINE__, TRUE);
+        $validated['test'] = 'Benchmark cannot be run because OLTP-Bench is not built';
+      }
     }
-    if ($hostname == 'localhost') $validated['hostname'] = 'hostname cannot be localhost';
     
-    // validate collectd rrd options
-    if (isset($this->options['collectd_rrd'])) {
-      if (!ch_check_sudo()) $validated['collectd_rrd'] = 'sudo privilege is required to use this option';
-      else if (!is_dir($this->options['collectd_rrd_dir'])) $validated['collectd_rrd_dir'] = sprintf('The directory %s does not exist', $this->options['collectd_rrd_dir']);
-      else if ((shell_exec('ps aux | grep collectd | wc -l')*1 < 2)) $validated['collectd_rrd'] = 'collectd is not running';
-      else if ((shell_exec(sprintf('find %s -maxdepth 1 -type d 2>/dev/null | wc -l', $this->options['collectd_rrd_dir']))*1 < 2)) $validated['collectd_rrd_dir'] = sprintf('The directory %s is empty', $this->options['collectd_rrd_dir']);
+    // JPAB test only compatible with MySQL, DB2, PostgreSQL, Oracle and SQL Server
+    if (in_array('jpab', $options['test']) && !in_array($options['db_type'], array('mysql', 'db2', 'postgres', 'oracle', 'sqlserver'))) $validated['test'] = 'JPAB Benchmark is only compatible with MySQL, DB2, PostgreSQL, Oracle and SQL Server';
+    
+    // db dump file
+    if (isset($options['db_dump']) && is_dir($options['db_dump'])) $validated['db_dump'] = '--db_dump cannot be a directory';
+    
+    // test size
+    if (isset($options['test_size']) && 
+        !(preg_match('/^\//', trim($this->options['test_size'])) ? get_free_space($this->options['test_size']) : size_from_string($this->options['test_size']))) {
+      $validated['test_size'] = sprintf('%s is not a valid size string (e.g. 100 GB), directory or device', $options['test_size']);
     }
     
     return $validated;

@@ -1,0 +1,8 @@
+[
+  {"name": "wikipedia_pages", "type": "int unsigned"},
+  {"name": "wikipedia_ratio_add_watch_list", "type": "float unsigned"},
+  {"name": "wikipedia_ratio_remove_watch_list", "type": "float unsigned"},
+  {"name": "wikipedia_ratio_update_page", "type": "float unsigned"},
+  {"name": "wikipedia_ratio_get_page_anonymous", "type": "float unsigned"},
+  {"name": "wikipedia_ratio_get_page_authenticated", "type": "float unsigned"}
+]

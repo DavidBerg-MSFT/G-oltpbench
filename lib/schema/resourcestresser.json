@@ -1,0 +1,8 @@
+[
+  {"name": "resourcestresser_ratio_cpu1", "type": "tinyint unsigned"},
+  {"name": "resourcestresser_ratio_cpu2", "type": "tinyint unsigned"},
+  {"name": "resourcestresser_ratio_io1", "type": "tinyint unsigned"},
+  {"name": "resourcestresser_ratio_io2", "type": "tinyint unsigned"},
+  {"name": "resourcestresser_ratio_contention1", "type": "tinyint unsigned"},
+  {"name": "resourcestresser_ratio_contention2", "type": "tinyint unsigned"}
+]

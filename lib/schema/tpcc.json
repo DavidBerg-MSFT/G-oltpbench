@@ -1,0 +1,8 @@
+[
+  {"name": "tpcc_ratio_delivery", "type": "tinyint unsigned"},
+  {"name": "tpcc_ratio_new_order", "type": "tinyint unsigned"},
+  {"name": "tpcc_ratio_order_status", "type": "tinyint unsigned"},
+  {"name": "tpcc_ratio_payment", "type": "tinyint unsigned"},
+  {"name": "tpcc_ratio_stock_level", "type": "tinyint unsigned"},
+  {"name": "tpcc_warehouses", "type": "smallint unsigned"}
+]
