@@ -184,6 +184,13 @@ The following runtime parameters and environment metadata may be specified
 
 * db_user                   Database username - default: root
 
+* font_size                 The base font size pt to use in reports and graphs. 
+                            All text will be relative to this size (i.e. 
+                            smaller, larger). Default is 9. Graphs use this 
+                            value + 4 (i.e. default 13). Open Sans is included
+                            with this software. To change this, simply replace
+                            the reports/font.ttf file with your desired font
+
 * jpab_objects              Number of initial objects for the JPAB benchmark.
                             Default is the max value in --test_clients multiplied 
                             by 100,000. Value should be a multiple of 100,000. 
@@ -769,6 +776,8 @@ benchmark_version: [benchmark version]
 collectd_rrd: [URL to zip file containing collectd rrd files (if --store option used)]
 db_driver
 db_isolation
+db_load_from_dump: [true if database load was from a dump file]
+db_load_time: [database load time - secs (if applicable)]
 db_type
 iteration*: [iteration number (used with incremental result directories)]
 java_version: [version of java present]

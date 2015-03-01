@@ -24,6 +24,11 @@ date_default_timezone_set('UTC');
 class OltpBenchTest {
   
   /**
+   * date format string
+   */
+  const OLTP_BENCH_DATE_FORMAT = 'm/d/Y H:i e';
+  
+  /**
    * name of the file where serializes options should be written to for given 
    * test iteration
    */
@@ -33,6 +38,11 @@ class OltpBenchTest {
    * optional results directory object was instantiated for
    */
   private $dir;
+  
+  /**
+   * graph colors array
+   */
+  private $graphColors = array();
   
   /**
    * TRUE if not explicit test rate was set
@@ -68,6 +78,12 @@ class OltpBenchTest {
    *   warmup => true if this was the warmup (firs step if --test_warmup set)
    *   start => start time (timestamp)
    *   stop => stop time (timestamp)
+   *   size => dataset size (MB)
+   *   test_size => test size
+   *   test_size_label => label for test size
+   *   db_name => database name
+   *   db_load_from_dump => database loaded from dump?
+   *   db_load_time => database load time - secs
    *   latency: mean latency - ms
    *   latency_10: 10th percentile latency - ms
    *   latency_20: 20th percentile latency - ms
@@ -80,9 +96,21 @@ class OltpBenchTest {
    *   latency_90: 90th percentile latency - ms
    *   latency_95: 95th percentile latency - ms
    *   latency_99: 99th percentile latency - ms
+   *   latency_max_10: 10th percentile latency_max - ms
+   *   latency_max_20: 20th percentile latency_max - ms
+   *   latency_max_30: 30th percentile latency_max - ms
+   *   latency_max_40: 40th percentile latency_max - ms
+   *   latency_max_50: 50th percentile latency_max (median) - ms
+   *   latency_max_60: 60th percentile latency_max - ms
+   *   latency_max_70: 70th percentile latency_max - ms
+   *   latency_max_80: 80th percentile latency_max - ms
+   *   latency_max_90: 90th percentile latency_max - ms
+   *   latency_max_95: 95th percentile latency_max - ms
+   *   latency_max_99: 99th percentile latency_max - ms
    *   latency_at_max: latency at max throughput - ms
    *   latency_max: max latency - ms
    *   latency_min: min latency - ms
+   *   latency_stdev: throughput standard deviation
    *   latency_values: array of all mean latency values indexed by seconds
    *   latency_values_max: array of all max percentile latency values indexed by seconds
    *   latency_values_min: array of all min latency values indexed by seconds
@@ -148,6 +176,27 @@ class OltpBenchTest {
    */
   public function OltpBenchTest($dir=NULL) {
     $this->dir = $dir;
+  }
+  
+  /**
+   * adjusts a value to the best matching log scale for use on a graph
+   * @param float $val the value to adjust
+   * @param boolean $min adjust to minimum value?
+   * @return float
+   */
+  private static function adjustLogScale($val, $min=FALSE) {
+    $adjusted = NULL;
+    if (is_numeric($val) && $val >= 0) {
+      $adjusted = 1;
+      if ($min) {
+        while($val > $adjusted) $adjusted *= 10;
+        if ($adjusted > 1) $adjusted /= 10;
+      }
+      else {
+        while($val < $adjusted) $adjusted *= 10;
+      }
+    }
+    return $adjusted;
   }
   
   /**
@@ -260,7 +309,46 @@ class OltpBenchTest {
       $ended = TRUE;
     }
     
-    // TODO: generate artifacts: oltp-bench.zip, report.zip, report.pdf
+    // generate results archive oltp-bench.zip
+    $zip = sprintf('%s/oltp-bench.zip', $dir);
+    exec('rm -f ' . $zip);
+    mkdir($tdir = sprintf('%s/%d', $dir, rand()));
+    exec(sprintf('cp %s/*.cnf %s/', $dir, $tdir));
+    exec(sprintf('cp %s/*.err %s/', $dir, $tdir));
+    exec(sprintf('cp %s/*.out %s/', $dir, $tdir));
+    exec(sprintf('cp %s/*.raw %s/', $dir, $tdir));
+    exec(sprintf('cp %s/*.res %s/', $dir, $tdir));
+    exec(sprintf('cp %s/*.xml %s/', $dir, $tdir));
+    exec(sprintf('cp %s/*.sh %s/', $dir, $tdir));
+    exec(sprintf('cd %s; zip %s *; mv %s %s; rm -rf %s', $tdir, basename($zip), basename($zip), $dir, $tdir));
+    if (file_exists($zip) && !filesize($zip)) exec('rm -f ' . $zip);
+    if (file_exists($zip)) print_msg(sprintf('Successfully generated results archive %s', $zip), $this->verbose, __FILE__, __LINE__);
+    else print_msg(sprintf('Unable to generate results archive %s', $zip), $this->verbose, __FILE__, __LINE__, TRUE);
+    
+    // generate test report
+    if ($success && $this->results && !isset($this->options['noreport'])) {
+      mkdir($tdir = sprintf('%s/%d', $dir, rand()));
+      print_msg(sprintf('Generating HTML report in %s', $tdir), $this->verbose, __FILE__, __LINE__);
+      if ($this->generateReport($tdir) && file_exists(sprintf('%s/index.html', $tdir))) {
+        if (!isset($this->options['nopdfreport'])) {
+          print_msg('Generating PDF report using wkhtmltopdf', $this->verbose, __FILE__, __LINE__);
+          $cmd = sprintf('cd %s; wkhtmltopdf -s Letter --footer-left [date] --footer-right [page] --footer-font-name rfont --footer-font-size %d index.html report.pdf >/dev/null 2>&1; echo $?', $tdir, $this->options['font_size']);
+          $ecode = trim(exec($cmd));
+          if ($ecode > 0) print_msg(sprintf('Failed to generate PDF report'), $this->verbose, __FILE__, __LINE__, TRUE);
+          else {
+            print_msg(sprintf('Successfully generated PDF report'), $this->verbose, __FILE__, __LINE__);
+            exec(sprintf('mv %s/report.pdf %s', $tdir, $dir));
+          }
+        }
+        $zip = sprintf('%s/report.zip', $dir);
+        exec('rm -f ' . $zip);
+        exec(sprintf('cd %s; zip %s *; mv %s %s', $tdir, basename($zip), basename($zip), $dir));
+      }
+      else print_msg('Unable to generate HTML report', $this->verbose, __FILE__, __LINE__, TRUE);
+      
+      exec(sprintf('rm -rf %s', $tdir));
+    }
+    else print_msg('Test report will not be generated because --noreport flag was set or not results exist', $this->verbose, __FILE__, __LINE__);
     
     return $ended;
   }
@@ -277,6 +365,531 @@ class OltpBenchTest {
     eval(sprintf('$value=round(%s);', $expr));
     $value *= 1;
     return $value;
+  }
+  
+  /**
+   * generates graphs for $result in the directory $dir using the prefix 
+   * $prefix
+   * @param array $result the results data to generate graphs for
+   * @param string $dir directory where graphs should be generate in
+   * @param string prefix for generated files
+   * @return boolean
+   */
+  private function generateGraphs($result, $dir, $prefix) {
+    $graphs = array();
+    if ($result && is_dir($dir) && is_writable($dir) && $prefix) {
+      if (isset($result['throughput_values'])) {
+        // Throughput Timeline
+        $timeline = $this->makeCoords($result['throughput_values']);
+        $coords = array('' => $timeline,
+                        'Median' => array(array($timeline[0][0], $result['throughput_50']), array($timeline[count($timeline) - 1][0], $result['throughput_50'])));
+        $settings = array();
+        $settings['lines'] = array(1 => "lt 1 lc rgb '#5DA5DA' lw 3 pt -1",
+                                   2 => "lt 2 lc rgb '#4D4D4D' lw 3 pt -1");
+        $settings['nogrid'] = TRUE;
+        $settings['yMin'] = 0;
+        if ($graph = $this->generateGraph($dir, $prefix . '-throughput', $coords, 'Time (secs)', 'Throughput (req/sec)', NULL, $settings)) $graphs[sprintf('Throughput - %d clients', $result['processes']*$result['clients'])] = $graph;
+        
+        // Throughput Histogram
+        $coords = $this->makeCoords($result['throughput_values'], TRUE);
+        $settings = array();
+        $settings['nogrid'] = TRUE;
+        $settings['yMin'] = 0;
+        $settings['yMax'] = '20%';
+        if ($graph = $this->generateGraph($dir, $prefix . '-throughput-histogram', $coords, 'Throughput (req/sec)', 'Samples', NULL, $settings, TRUE, 'histogram')) $graphs[sprintf('Throughput Histogram - %d clients', $result['processes']*$result['clients'])] = $graph;
+        
+        // Throughput Percentiles
+        $coords = array();
+        foreach(array(10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99) as $perc) {
+          $coords[sprintf('%dth', $perc)] = array($result[sprintf('throughput_%d', $perc)]);
+        }
+        $settings = array();
+        $settings['nogrid'] = TRUE;
+        $settings['yMin'] = 0;
+        $settings['yMax'] = '20%';
+        if ($graph = $this->generateGraph($dir, $prefix . '-throughput-percentiles', $coords, 'Percentiles', 'Throughput (req/sec)', NULL, $settings, TRUE, 'bar')) $graphs[sprintf('Throughput Percentiles - %d clients', $result['processes']*$result['clients'])] = $graph;
+      }
+      if (isset($result['latency_values'])) {
+        // Latency Timeline
+        $coords = array('Median' => $this->makeCoords($result['latency_values_50']),
+                        'Min' => $this->makeCoords($result['latency_values_min']),
+                        'Max' => $this->makeCoords($result['latency_values_max']));
+        $settings['lines'] = array(1 => "lt 2 lc rgb '#4D4D4D' lw 4 pt -1",
+                                   2 => "lt 1 lc rgb '#60BD68' lw 3 pt -1",
+                                   3 => "lt 1 lc rgb '#F15854' lw 3 pt -1");
+        $settings['nogrid'] = TRUE;
+        $settings['yMin'] = 0;
+        if ($graph = $this->generateGraph($dir, $prefix . '-latency', $coords, 'Time (secs)', 'Latency (ms)', NULL, $settings)) $graphs[sprintf('Latency - %d clients', $result['processes']*$result['clients'])] = $graph;
+
+        // Latency Histogram
+        $coords = $this->makeCoords($result['latency_values_max'], TRUE);
+        $settings = array();
+        $settings['nogrid'] = TRUE;
+        $settings['yMin'] = 0;
+        $settings['yMax'] = '20%';
+        if ($graph = $this->generateGraph($dir, $prefix . '-latency-histogram', $coords, 'Max Latency (ms)', 'Samples', NULL, $settings, TRUE, 'histogram')) $graphs[sprintf('Max Latency Histogram - %d clients', $result['processes']*$result['clients'])] = $graph;
+        
+        // Latency Percentiles
+        $coords = array();
+        foreach(array(10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99) as $perc) {
+          $coords[sprintf('%dth', $perc)] = array($result[sprintf('latency_max_%d', $perc)]);
+        }
+        $settings = array();
+        $settings['nogrid'] = TRUE;
+        $settings['yMin'] = 0;
+        $settings['yMax'] = '20%';
+        if ($graph = $this->generateGraph($dir, $prefix . '-latency-percentiles', $coords, 'Percentiles', 'Max Latency (ms)', NULL, $settings, TRUE, 'bar')) $graphs[sprintf('Max Latency Percentiles - %d clients', $result['processes']*$result['clients'])] = $graph;
+      }
+    }
+    return $graphs;
+  }
+  
+  /**
+   * generates a line chart based on the parameters provided. return value is 
+   * the name of the image which may in turn be used in an image element for 
+   * a content section. returns NULL on error
+   * @param string $dir the directory where the line chart should be generated
+   * @param string $prefix the file name prefix
+   * @param array $coords either a single array of tuples representing the x/y
+   * values, or a hash or tuple arrays indexed by the name of each set of data
+   * points. coordinates should have the same index
+   * @param string $xlabel optional x label
+   * @param string $ylabel optional y label
+   * @param string $title optional graph title
+   * @param array $settings optional array of custom gnuplot settings. the 
+   * following special settings are supported:
+   *   height: the graph height
+   *   lines:     optional line styles (indexed by line #)
+   *   nogrid:    don't add y axis grid lines
+   *   nokey:     don't show the plot key/legend
+   *   nolinespoints: don't use linespoints
+   *   xFloatPrec: x float precision
+   *   xLogscale: use logscale for the x axis
+   *   xMin:      min value for the x axis tics - may be a percentage relative to 
+   *              the lowest value
+   *   xMax:      max value for the x axis tics - may be a percentage relative to 
+   *              the highest value
+   *   xTics:     the number of x tics to show (default 8)
+   *   yFloatPrec: y float precision
+   *   yLogscale: use logscale for the y axis
+   *   yMin:      min value for the x axis tics - may be a percentage relative to 
+   *              the lowest value
+   *   yMax:      max value for the y axis tics - may be a percentage relative to 
+   *              the highest value
+   *   yTics:     the number of y tics to show (default 8)
+   * 
+   * xMin, xMax, yMin and yMax all default to the same value as the other for 
+   * percentages and 15% otherwise if only 1 is set for a given 
+   * axis. If neither are specified, gnuplot will auto assign the tics. If xMin
+   * or xMax are specified, but not xTics, xTics defaults to 8
+   * @param boolean $html whether or not to return the html <img element or just
+   * the name of the file
+   * @param string $type the type of graph to generate - line, histogram or bar. 
+   * If histogram, $coords should represent all of the y values for a 
+   * given X. The $coords hash key will be used as the X label and the value(s) 
+   * rendered using a clustered histogram (grouped column chart)
+   * @return string
+   */
+  private function generateGraph($dir, $prefix, $coords, $xlabel=NULL, $ylabel=NULL, $title=NULL, $settings=NULL, $html=TRUE, $type='line') {
+    print_msg(sprintf('Generating line chart in %s using prefix %s with %d coords', $dir, $prefix, count($coords)), $this->verbose, __FILE__, __LINE__);
+    
+    $chart = NULL;
+    $script = sprintf('%s/%s.pg', $dir, $prefix);
+    $dfile = sprintf('%s/%s.dat', $dir, $prefix);
+    if (is_array($coords) && ($fp = fopen($script, 'w')) && ($df = fopen($dfile, 'w'))) {
+      $colors = $this->getGraphColors();
+      $xFloatPrec = isset($settings['xFloatPrec']) && is_numeric($settings['xFloatPrec']) ? $settings['xFloatPrec'] : 0;
+      $yFloatPrec = isset($settings['yFloatPrec']) && is_numeric($settings['yFloatPrec']) ? $settings['yFloatPrec'] : 0;
+      
+      // just one array of tuples
+      if (isset($coords[0])) $coords = array('' => $coords);
+      
+      // determine max points/write data file header
+      $maxPoints = NULL;
+      foreach(array_keys($coords) as $i => $key) {
+        if ($maxPoints === NULL || count($coords[$key]) > $maxPoints) $maxPoints = count($coords[$key]);
+        if ($type == 'line') fwrite($df, sprintf("%s%s%s\t%s%s", $i > 0 ? "\t" : '', $key ? $key . ' ' : '', $xlabel ? $xlabel : 'X', $key ? $key . ' ' : '', $ylabel ? $ylabel : 'Y'));
+      }
+      if ($type == 'line') fwrite($df, "\n");
+      
+      // determine value ranges and generate data file
+      $minX = NULL;
+      $maxX = NULL;
+      $minY = NULL;
+      $maxY = NULL;
+      if ($type != 'line') {
+        foreach($coords as $x => $points) {
+          if ($type == 'bar' && is_numeric($x) && ($minX === NULL || $x < $minX)) $minX = $x;
+          if ($type == 'bar' && is_numeric($x) && $x > $maxX) $maxX = $x;
+          fwrite($df, $x);
+          for($n=0; $n<$maxPoints; $n++) {
+            $y = isset($points[$n]) ? $points[$n]*1 : '';
+            if (is_numeric($y) && ($minY === NULL || $y < $minY)) $minY = $y;
+            if (is_numeric($y) && $y > $maxY) $maxY = $y;
+            fwrite($df, sprintf("\t%s", $y));
+          }
+          fwrite($df, "\n");
+        }
+        if ($type == 'histogram') fwrite($df, ".\t0\n");
+      }
+      else {
+        for($n=0; $n<$maxPoints; $n++) {
+          foreach(array_keys($coords) as $i => $key) {
+            $x = isset($coords[$key][$n][0]) ? $coords[$key][$n][0] : '';
+            if (is_numeric($x) && ($minX === NULL || $x < $minX)) $minX = $x;
+            if (is_numeric($x) && $x > $maxX) $maxX = $x;
+            $y = isset($coords[$key][$n][1]) ? $coords[$key][$n][1] : '';
+            if (is_numeric($y) && ($minY === NULL || $y < $minY)) $minY = $y;
+            if (is_numeric($y) && $y > $maxY) $maxY = $y;
+            fwrite($df, sprintf("%s%s\t%s", $i > 0 ? "\t" : '', $x, $y));
+          }
+          fwrite($df, "\n");
+        } 
+      }
+      fclose($df);
+      
+      // determine x tic settings
+      $xMin = isset($settings['xMin']) ? $settings['xMin'] : NULL;
+      $xMax = isset($settings['xMax']) ? $settings['xMax'] : NULL;
+      $xTics = isset($settings['xTics']) ? $settings['xTics'] : NULL;
+      if (!isset($xMin) && (isset($xMax) || $xTics)) $xMin = isset($xMax) && preg_match('/%/', $xMax) ? $xMax : '15%';
+      if (!isset($xMax) && (isset($xMin) || $xTics)) $xMax = isset($xMin) && preg_match('/%/', $xMin) ? $xMin : '15%';
+      if (!isset($xMin)) $xMin = $minX;
+      if (!isset($xMax)) $xMax = $maxX;
+      if (preg_match('/^([0-9\.]+)%$/', $xMin, $m)) {
+        $xMin = floor($minX - ($minX*($m[1]*0.01)));
+        if ($xMin < 0) $xMin = 0;
+      }
+      if (preg_match('/^([0-9\.]+)%$/', $xMax, $m)) $xMax = ceil($maxX + ($maxX*($m[1]*0.01)));
+      if (!$xTics) $xTics = 8;
+      $xDiff = $xMax - $xMin;
+      $xStep = floor($xDiff/$xTics);
+      if ($xStep < 1) $xStep = 1;
+      
+      // determine y tic settings
+      $yMin = isset($settings['yMin']) ? $settings['yMin'] : NULL;
+      $yMax = isset($settings['yMax']) ? $settings['yMax'] : NULL;
+      $yTics = isset($settings['yTics']) ? $settings['yTics'] : NULL;
+      if (!isset($yMin) && (isset($yMax) || $yTics)) $yMin = isset($yMax) && preg_match('/%/', $yMax) ? $yMax : '15%';
+      if (!isset($yMax) && (isset($yMin) || $yTics)) $yMax = isset($yMin) && preg_match('/%/', $yMin) ? $yMin : '15%';
+      if (isset($yMin) && preg_match('/^([0-9\.]+)%$/', $yMin, $m)) {
+        $yMin = floor($minY - ($minY*($m[1]*0.01)));
+        if ($yMin < 0) $yMin = 0;
+      }
+      if (isset($yMin)) {
+        if (preg_match('/^([0-9\.]+)%$/', $yMax, $m)) $yMax = ceil($maxY + ($maxY*($m[1]*0.01)));
+        if (!$yTics) $yTics = 8;
+        $yDiff = $yMax - $yMin;
+        $yStep = floor($yDiff/$yTics);
+        if ($yStep < 1) $yStep = 1;
+      }
+      
+      $img = sprintf('%s/%s.svg', $dir, $prefix);
+      print_msg(sprintf('Generating line chart %s with %d data sets and %d points/set. X Label: %s; Y Label: %s; Title: %s', basename($img), count($coords), $maxPoints, $xlabel, $ylabel, $title), $this->verbose, __FILE__, __LINE__);
+      
+      fwrite($fp, sprintf("#!%s\n", trim(shell_exec('which gnuplot'))));
+      fwrite($fp, "reset\n");
+      fwrite($fp, sprintf("set terminal svg dashed size 1024,%d fontfile 'font-svg.css' font 'rfont,%d'\n", isset($settings['height']) ? $settings['height'] : 600, $this->options['font_size']+4));
+      // custom settings
+      if (is_array($settings)) {
+        foreach($settings as $key => $setting) {
+          // special settings
+          if (in_array($key, array('height', 'lines', 'nogrid', 'nokey', 'nolinespoints', 'xLogscale', 'xMin', 'xMax', 'xTics', 'xFloatPrec', 'yFloatPrec', 'yLogscale', 'yMin', 'yMax', 'yTics'))) continue;
+          fwrite($fp, "${setting}\n");
+        }
+      }
+      fwrite($fp, "set autoscale keepfix\n");
+      fwrite($fp, "set decimal locale\n");
+      fwrite($fp, "set format y \"%'10.${yFloatPrec}f\"\n");
+      fwrite($fp, "set format x \"%'10.${xFloatPrec}f\"\n");
+      if ($xlabel) fwrite($fp, sprintf("set xlabel \"%s\"\n", $xlabel));
+      if (isset($settings['xLogscale'])) {
+        if (!isset($settings['xMin'])) $xMin = OltpBenchTest::adjustLogScale($xMin, TRUE);
+        if (!isset($settings['xMax'])) $xMax = OltpBenchTest::adjustLogScale($xMax);
+      }
+      if ($xMin != $xMax) fwrite($fp, sprintf("set xrange [%d:%d]\n", $xMin, $xMax));
+      if (isset($settings['xLogscale'])) fwrite($fp, "set logscale x\n");
+      else if ($xMin != $xMax && !$xFloatPrec) fwrite($fp, sprintf("set xtics %d, %d, %d\n", $xMin, $xStep, $xMax));
+      if ($ylabel) fwrite($fp, sprintf("set ylabel \"%s\"\n", $ylabel));
+      if (isset($yMin)) {
+        if (isset($settings['yLogscale'])) {
+          if (!isset($settings['yMin'])) $yMin = OltpBenchTest::adjustLogScale($yMin, TRUE);
+          if (!isset($settings['yMax'])) $yMax = OltpBenchTest::adjustLogScale($yMax);
+        }
+        if ($yMin != $yMax) fwrite($fp, sprintf("set yrange [%d:%d]\n", $yMin, $yMax));
+        if (isset($settings['yLogscale'])) fwrite($fp, "set logscale y\n");
+        else if (!$yFloatPrec) fwrite($fp, sprintf("set ytics %d, %d, %d\n", $yMin, $yStep, $yMax));
+      }
+      if ($title) fwrite($fp, sprintf("set title \"%s\"\n", $title));
+      if (!isset($settings['nokey'])) fwrite($fp, "set key outside center top horizontal reverse\n");
+      fwrite($fp, "set grid\n");
+      fwrite($fp, sprintf("set style data lines%s\n", !isset($settings['nolinespoints']) || !$settings['nolinespoints'] ? 'points' : ''));
+      
+      # line styles
+      fwrite($fp, "set border linewidth 1.5\n");
+      foreach(array_keys($coords) as $i => $key) {
+        if (!isset($colors[$i])) break;
+        if (isset($settings['lines'][$i+1])) fwrite($fp, sprintf("set style line %d %s\n", $i+1, $settings['lines'][$i+1]));
+        else fwrite($fp, sprintf("set style line %d lc rgb '%s' lt 1 lw 3 pt -1\n", $i+1, $colors[$i]));
+      }
+      if ($type != 'line') {
+        fwrite($fp, "set style fill solid noborder\n");
+        fwrite($fp, sprintf("set boxwidth %s relative\n", $type == 'histogram' ? '1' : '0.9'));
+        fwrite($fp, sprintf("set style histogram cluster gap %d\n", $type == 'histogram' ? 0 : 1));
+        fwrite($fp, "set style data histogram\n");
+      }
+      
+      fwrite($fp, "set grid noxtics\n");
+      if (!isset($settings['nogrid'])) fwrite($fp, "set grid ytics lc rgb '#dddddd' lw 1 lt 0\n");
+      else fwrite($fp, "set grid noytics\n");
+      fwrite($fp, "set tic scale 0\n");
+      // centering of labels doesn't work with current CentOS gnuplot package, so simulate for histogram
+      if ($type == 'histogram') fwrite($fp, sprintf("set xtics offset %d\n", round(0.08*(480/count($coords)))));
+      fwrite($fp, sprintf("plot \"%s\"", basename($dfile)));
+      $colorPtr = 1;
+      if ($type != 'line') {
+        for($i=0; $i<$maxPoints; $i++) {
+          fwrite($fp, sprintf("%s u %d:xtic(1) ls %d notitle", $i > 0 ? ", \\\n\"\"" : '', $i+2, $colorPtr));
+          $colorPtr++;
+          if ($colorPtr > count($colors)) $colorPtr = 1;
+        }
+      }
+      else {
+        foreach(array_keys($coords) as $i => $key) {
+          fwrite($fp, sprintf("%s every ::1 u %d:%d t \"%s\" ls %d", $i > 0 ? ", \\\n\"\"" : '', ($i*2)+1, ($i*2)+2, $key, $colorPtr));
+          $colorPtr++;
+          if ($colorPtr > count($colors)) $colorPtr = 1;
+        }
+      }
+      
+      fclose($fp);
+      exec(sprintf('chmod +x %s', $script));
+      $cmd = sprintf('cd %s; ./%s > %s 2>/dev/null; echo $?', $dir, basename($script), basename($img));
+      $ecode = trim(exec($cmd));
+      // exec('rm -f %s', $script);
+      // exec('rm -f %s', $dfile);
+      if ($ecode > 0) {
+        // exec('rm -f %s', $img);
+        // passthru(sprintf('cd %s; ./%s > %s', $dir, basename($script), basename($img)));
+        // print_r($coords);
+        // echo $cmd;
+        // exit;
+        print_msg(sprintf('Failed to generate line chart - exit code %d', $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
+      }
+      else {
+        print_msg(sprintf('Generated line chart %s successfully', $img), $this->verbose, __FILE__, __LINE__);
+        // attempt to convert to PNG using wkhtmltoimage
+        if (OltpBenchTest::wkhtmltopdfInstalled()) {
+          $cmd = sprintf('wkhtmltoimage %s %s >/dev/null 2>&1', $img, $png = str_replace('.svg', '.png', $img));
+          $ecode = trim(exec($cmd));
+          if ($ecode > 0 || !file_exists($png) || !filesize($png)) print_msg(sprintf('Unable to convert SVG image %s to PNG %s (exit code %d)', $img, $png, $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
+          else {
+            exec(sprintf('rm -f %s', $img));
+            print_msg(sprintf('SVG image %s converted to PNG successfully - PNG will be used in report', basename($img)), $this->verbose, __FILE__, __LINE__);
+            $img = $png;
+          }
+        }
+        // return full image tag
+        if ($html) $chart = sprintf('<img alt="" class="plot" src="%s" />', basename($img));
+        else $chart = basename($img);
+      }
+    }
+    // error - invalid scripts or unable to open gnuplot files
+    else {
+      print_msg(sprintf('Failed to generate line chart - either coordinates are invalid or script/data files %s/%s could not be opened', basename($script), basename($dfile)), $this->verbose, __FILE__, __LINE__, TRUE);
+      if ($fp) {
+        fclose($fp);
+        exec('rm -f %s', $script);
+      }
+    }
+    return $chart;
+  }
+  
+  /**
+   * generates an HTML report. Returns TRUE on success, FALSE otherwise
+   * @param string $dir optional directory where reports should be generated 
+   * in. If not specified, --output will be used
+   * @return boolean
+   */
+  public function generateReport($dir=NULL) {
+    $generated = FALSE;
+    $pageNum = 0;
+    if (!$dir) $dir = $this->options['output'];
+    
+    if (is_dir($dir) && is_writable($dir) && ($fp = fopen($htmlFile = sprintf('%s/index.html', $dir), 'w'))) {
+      print_msg(sprintf('Initiating report creation in directory %s', $dir), $this->verbose, __FILE__, __LINE__);
+      
+      $reportsDir = dirname(dirname(__FILE__)) . '/reports';
+      $fontSize = $this->options['font_size'];
+      
+      // add header
+      $tests = array();
+      $subtests = array();
+      foreach(array_keys($this->results) as $key) {
+        $test = $this->results[$key]['test'];
+        if (!in_array($test, $tests)) $tests[] = $test;
+        if (isset($this->results[$key]['subtest'])) {
+          if (!isset($subtests[$test])) $subtests[$test] = array();
+          $subtests[$test][] = $this->results[$key]['subtest'];
+        }
+      }
+      $title = 'OLTP Performance Report - ' . implode(' ', $tests);
+      
+      ob_start();
+      include(sprintf('%s/header.html', $reportsDir));
+      fwrite($fp, ob_get_contents());
+      ob_end_clean();
+      
+      // copy font files
+      exec(sprintf('cp %s/font-svg.css %s/', $reportsDir, $dir));
+      exec(sprintf('cp %s/font.css %s/', $reportsDir, $dir));
+      exec(sprintf('cp %s/font.ttf %s/', $reportsDir, $dir));
+      exec(sprintf('cp %s/logo.png %s/', $reportsDir, $dir));
+      
+      foreach($tests as $test) {
+        foreach(isset($subtests[$test]) ? $subtests[$test] : array($test) as $subtest) {
+          $results = array();
+          $fkey = NULL;
+          $lkey = NULL;
+          $resultClients = array();
+          $resultRates = array();
+          $resultTp = array();
+          $resultLatency = array();
+          $resultLatencyAtMax = array();
+          $resultSs = array();
+          foreach(array_keys($this->results) as $key) {
+            if ($this->results[$key]['test'] == $test && ($subtest == $test || (isset($this->results[$key]['subtest']) && $this->results[$key]['subtest'] == $subtest))) {
+              if (isset($this->results[$key]['warmup']) && $this->results[$key]['warmup']) continue;
+              if (!$fkey) $fkey = $key;
+              $lkey = $key;
+              $results[$key] = $this->results[$key];
+              $resultClients[] = $this->results[$key]['clients'];
+              $resultRates[] = isset($this->results[$key]['rate']) ? $this->results[$key]['rate'] : 'Unlimited';
+              $resultTp[] = $this->results[$key]['throughput'];
+              $resultLatency[] = $this->results[$key]['latency_max'];
+              $resultLatencyAtMax[] = $this->results[$key]['latency_at_max'];
+              if (isset($this->results[$key]['steady_state'])) $resultSs[] = $this->results[$key]['steady_state'];
+            }
+            if (count(array_unique($resultRates)) == 1 && in_array('Unlimited', $resultRates)) $resultRates = array('Unlimited');
+          }
+          print_msg(sprintf('Generating content for test %s with %d results', $test, count($results)), $this->verbose, __FILE__, __LINE__);
+          $testPageNum = 0;
+
+          // page header
+          $dbParams = array('Type' => $this->options['db_type'],
+                            'Name' => $results[$lkey]['db_name'],
+                            'Driver' => $this->options['db_driver'],
+                            'Isolation Level' => $this->options['db_isolation'],
+                            'Load Time' => isset($results[$lkey]['db_load_time']) ? $results[$lkey]['db_load_time'] : 'Not Loaded',
+                            'Loaded from Dump?' => isset($results[$lkey]['db_load_time']) ? ($results[$lkey]['db_load_from_dump'] ? 'Yes' : 'No') : 'NA',
+                            'Dataset Size' => isset($results[$lkey]['size']) ? $results[$lkey]['size'] . ' MB' : 'NA');
+          if (isset($results[$lkey]['test_size_label'])) $dbParams[$results[$lkey]['test_size_label']] = $results[$lkey]['test_size'];
+
+          $graphs = array();
+          $gresults = array();
+
+          // graph by clients
+          $testPages = count($results)*6;
+          if (count($results) > 1) {
+            $testPages += 2;
+            $tcoords = array();
+            $lcoords = array();
+            foreach($results as $result) {
+              $tcoords[sprintf('%d clients', $result['processes']*$result['clients'])] = $this->makeCoords($result['throughput_values'], FALSE, TRUE);
+              $lcoords[sprintf('%d clients', $result['processes']*$result['clients'])] = $this->makeCoords($result['latency_values_max'], FALSE, TRUE);
+            }
+            $settings = array();
+            $settings['nogrid'] = TRUE;
+            $settings['yMin'] = 0;
+            if ($graph = $this->generateGraph($dir, $test . '-throughput-by-client', $tcoords, 'Time (secs)', 'Throughput (req/sec)', NULL, $settings)) $graphs['Throughput by Clients'] = $graph;
+            if ($graph = $this->generateGraph($dir, $test . '-latency-by-client', $lcoords, 'Time (secs)', 'Max Latency (ms)', NULL, $settings)) $graphs['Max Latency by Clients'] = $graph;
+          }
+
+          foreach($results as $key => $result) {
+            if ($rgraphs = $this->generateGraphs($result, $dir, $key)) {
+              $graphs = array_merge($graphs, $rgraphs);
+              foreach(array_keys($rgraphs) as $label) $gresults[$label] = $result;
+            }
+            else print_msg(sprintf('Unable to generate graphs for %s', $key), $this->verbose, __FILE__, __LINE__, TRUE);
+          }
+
+          // render report graphs (1 per page)
+          foreach($graphs as $label => $graph) {
+            $result = isset($gresults[$label]) ? $gresults[$label] : NULL;
+
+            $params = array(
+              'platform' => $this->getPlatformParameters(),
+              'database' => $dbParams,
+              'test' =>     array('OLTP Test' => strtoupper($results[$lkey]['test']) . ($result && isset($result['jpab_test']) ? ' [' . strtoupper($result['jpab_test']) . ']' : ''),
+                                  'Step' => $result ? $result['step'] : '1-' . count($results),
+                                  'Processes' => $results[$lkey]['processes'],
+                                  'Clients/Process' => $result ? $result['clients'] : implode(', ', $resultClients),
+                                  'Rate' => $result ? (isset($result['rate']) ? $result['rate'] : 'Unlimited') : implode(', ', $resultRates),
+                                  'Time' => $results[$lkey]['time'] . ' secs',
+                                  'Started' => date(OltpBenchTest::OLTP_BENCH_DATE_FORMAT, $result ? $result['start'] : $results[$fkey]['start']),
+                                  'Ended' => date(OltpBenchTest::OLTP_BENCH_DATE_FORMAT, $result ? $result['stop'] : $results[$lkey]['stop'])),
+              'result' =>   array('Mean Throughput' => ($result ? $result['throughput'] : round(get_mean($resultTp))) . ' req/sec',
+                                  'Median Throughput' => ($result ? $result['throughput_50'] : round(get_percentile($resultTp))) . ' req/sec',
+                                  'Std Dev' => ($result ? $result['throughput_stdev'] : round(get_std_dev($resultTp))),
+                                  'Mean Latency' => ($result ? $result['latency'] : round(get_mean($resultLatency))) . ' ms',
+                                  'Median Latency' => ($result ? $result['latency_50'] : round(get_percentile($resultLatency))) . ' ms',
+                                  'Std Dev ' => ($result ? $result['latency_stdev'] : round(get_std_dev($resultLatency))),
+                                  'Latency at Max Throughput' => ($result ? $result['latency_at_max'] : round(get_mean($resultLatencyAtMax))) . ' ms',
+                                  'Steady State' => $result ? (isset($result['steady_state']) ? $result['steady_state'] . ' secs' : 'Not Achieved') : ($resultSs ? round(get_mean($resultSs)) : 'Not Achieved'))
+            );
+            $headers = array();
+            for ($i=0; $i<100; $i++) {
+              $empty = TRUE;
+              $cols = array();
+              foreach($params as $type => $vals) {
+                if (count($vals) >= ($i + 1)) {
+                  $empty = FALSE;
+                  $keys = array_keys($vals);
+                  $cols[] = array('class' => $type, 'label' => $keys[$i], 'value' => $vals[$keys[$i]]);
+                }
+                else $cols[] = array('class' => $type, 'label' => '', 'value' => '');
+              }
+              if (!$empty) $headers[] = $cols;
+              else break;
+            }
+
+            $pageNum++;
+            $testPageNum++;
+            print_msg(sprintf('Successfully generated graphs for %s', $key), $this->verbose, __FILE__, __LINE__);
+            ob_start();
+            include(sprintf('%s/test.html', $reportsDir, $test));
+            fwrite($fp, ob_get_contents());
+            ob_end_clean(); 
+            $generated = TRUE; 
+          }   
+        }
+      }
+      
+      // add footer
+      ob_start();
+      include(sprintf('%s/footer.html', $reportsDir));
+      fwrite($fp, ob_get_contents());
+      ob_end_clean();
+      
+      fclose($fp);
+    }
+    else print_msg(sprintf('Unable to generate report in directory %s - it either does not exist or is not writable', $dir), $this->verbose, __FILE__, __LINE__, TRUE);
+    
+    return $generated;
+  }
+  
+  /**
+   * returns an array containing the hex color codes to use for graphs (as 
+   * defined in graph-colors.txt)
+   * @return array
+   */
+  protected final function getGraphColors() {
+    if (!count($this->graphColors)) {
+      foreach(file(dirname(__FILE__) . '/graph-colors.txt') as $line) {
+        if (substr($line, 0, 1) != '#' && preg_match('/([a-zA-Z0-9]{6})/', $line, $m)) $this->graphColors[] = '#' . $m[1];
+      }
+    }
+    return $this->graphColors;
   }
   
   /**
@@ -333,6 +946,24 @@ class OltpBenchTest {
   }
   
   /**
+   * returns the platform parameters for this test. These are displayed in the 
+   * Test Platform columns
+   * @return array
+   */
+  private function getPlatformParameters() {
+    return array(
+      'Provider' => isset($this->options['meta_provider']) ? $this->options['meta_provider'] : '',
+      'Service' => isset($this->options['meta_db_service']) ? isset($this->options['meta_db_service']) : (isset($this->options['meta_compute_service']) ? $this->options['meta_compute_service'] : ''),
+      'Region' => isset($this->options['meta_region']) ? $this->options['meta_region'] : '',
+      'Configuration' => isset($this->options['meta_db_service_config']) ? isset($this->options['meta_db_service_config']) : (isset($this->options['meta_instance_id']) ? $this->options['meta_instance_id'] : ''),
+      'CPU' => isset($this->options['meta_cpu']) ? $this->options['meta_cpu'] : '',
+      'Memory' => isset($this->options['meta_memory']) ? $this->options['meta_memory'] : '',
+      'Operating System' => isset($this->options['meta_os']) ? $this->options['meta_os'] : '',
+      'Test ID' => isset($this->options['meta_test_id']) ? $this->options['meta_test_id'] : '',
+    );
+  }
+  
+  /**
    * returns results as an array of rows if testing was successful, NULL 
    * otherwise
    * @return array
@@ -386,6 +1017,7 @@ class OltpBenchTest {
           'epinions_ratio_update_item_title' => 10,
           'epinions_ratio_update_review_rating' => 10,
           'epinions_ratio_update_trust_rating' => 20,
+          'font_size' => 9,
           'jpab_ratio_delete' => 25,
           'jpab_ratio_persist' => 25,
           'jpab_ratio_retrieve' => 25,
@@ -485,6 +1117,7 @@ class OltpBenchTest {
           'db_type:',
           'db_url:',
           'db_user:',
+          'font_size:',
           'jpab_objects:',
           'jpab_ratio_delete:',
           'jpab_ratio_persist:',
@@ -756,6 +1389,83 @@ class OltpBenchTest {
   }
   
   /**
+   * returns the parameter used for sizing fo test $test. returns NULL for 
+   * resourcestresser
+   * @param string $test the test to return the parameter for
+   * @param boolean $value return the parameter value (otherwise name is 
+   * returned)?
+   * @return mixed
+   */
+  private function getSizeParam($test, $value=FALSE) {
+    $param = NULL;
+    switch($this->test) {
+      case 'auctionmark':
+        $param = 'auctionmark_customers';
+        break;
+      case 'epinions':
+        $param = 'epinions_users';
+        break;
+      case 'jpab':
+        $param = 'jpab_objects';
+        break;
+      case 'seats':
+        $param = 'seats_customers';
+        break;
+      case 'tatp':
+        $param = 'tatp_subscribers';
+        break;
+      case 'tpcc':
+        $param = 'tpcc_warehouses';
+        break;
+      case 'twitter':
+        $param = 'twitter_users';
+        break;
+      case 'wikipedia':
+        $param = 'wikipedia_pages';
+        break;
+      case 'ycsb':
+        $param = 'ycsb_user_rows';
+        break;
+    }
+    return $value && $param ? (isset($this->options[$param]) ? $this->options[$param] : NULL) : $param;
+  }
+  
+  /**
+   * returns the label to use when representing the size metric for $test
+   * @param string $test the test to return the size label for
+   * @return string
+   */
+  private function getSizeParamLabel($test) {
+    $label = NULL;
+    switch($this->test) {
+      case 'auctionmark':
+      case 'seats':
+        $label = 'Customers';
+        break;
+      case 'epinions':
+      case 'twitter':
+        $label = 'Users';
+        break;
+      case 'jpab':
+        $label = 'Objects';
+        break;
+      case 'tatp':
+        $label = 'Subscribers';
+        break;
+      case 'tpcc':
+        $label = 'Warehouses';
+        break;
+      case 'wikipedia':
+        $label = 'Pages';
+        break;
+      case 'ycsb':
+        $label = 'User Rows';
+        break;
+    }
+    return $label;
+  }
+  
+  /**
    * returns the sub-tests associated with the current test
    * @return array
    */
@@ -966,6 +1676,40 @@ class OltpBenchTest {
   }
   
   /**
+   * make coordinates tuples from a results array
+   * @param array $vals results array (indexed by seconds)
+   * @param boolean $histogram make coordinates for a histogram
+   * @param boolean $secsReset if TRUE, seconds will be explictly set to start 
+   * at 0 and jump by test_sample_interval
+   * @return array
+   */
+  private function makeCoords($vals, $histogram=FALSE, $secsReset=FALSE) {
+    $coords = array();
+    if ($histogram) {
+      $min = NULL;
+      $max = NULL;
+      foreach($vals as $val) {
+        if (!isset($min) || $val < $min) $min = $val;
+        if (!isset($max) || $val > $max) $max = $val;        
+      }
+      $min = floor($min/100)*100;
+      $max = ceil($max/100)*100;
+      $diff = $max - $min;
+      $step = round($diff/8);
+      for($start=$min; $start<$max; $start+=$step) {
+        $label = sprintf('%d', $start);
+        $coords[$label] = 0;
+        foreach($vals as $val) if ($val >= $start && $val < ($start + $step)) $coords[$label]++;
+        $coords[$label] = array($coords[$label]);
+      }
+    }
+    else {
+      foreach(array_keys($vals) as $i => $secs) $coords[] = array($secsReset ? $i*$this->options['test_sample_interval'] : $secs, $vals[$secs]);
+    }
+    return $coords;
+  }
+  
+  /**
    * converts $mb megabytes to the associated $param value
    * @param float $mb the megabytes to convert with
    * @param string $param the param to convert
@@ -1011,6 +1755,51 @@ class OltpBenchTest {
   }
   
   /**
+   * converts the parameter value $val to it's associated size in megabytes
+   * @param int $val the parameter value
+   * @param string $param the param to convert
+   * @return int
+   */
+  private function paramToMb($val, $param) {
+    $mb = NULL;
+    switch($param) {
+      case 'auctionmark_customers':
+        if ($val < 1000) $val = 1000;
+        $mb = round($val/1000)*160;
+        break;
+      case 'epinions_users':
+        if ($val < 2000) $val = 2000;
+        $mb = round($val/2000)*30;
+        break;
+      case 'seats_customers':
+        if ($val < 1000) $val = 1000;
+        $mb = round($val/1000)*180;
+        break;
+      case 'tatp_subscribers':
+        if ($val < 1) $val = 1;
+        $mb = $val*95;
+        break;
+      case 'tpcc_warehouses':
+        if ($val < 1) $val = 1;
+        $mb = $val*110;
+        break;
+      case 'twitter_users':
+        if ($val < 1000) $val = 1000;
+        $mb = round($val/1000)*8;
+        break;
+      case 'wikipedia_pages':
+        if ($val < 1000) $val = 1000;
+        $mb = round($val/1000)*300;
+        break;
+      case 'ycsb_user_rows':
+        if ($val < 1000) $val = 1000;
+        $mb = round($val/1000)*4;
+        break;
+    }
+    return $mb;
+  }
+  
+  /**
    * returns TRUE if OLTP-Bench has been built already
    * @return boolean
    */
@@ -1034,6 +1823,8 @@ class OltpBenchTest {
       foreach($this->getSubTests() as $subtest) {
         $this->subtest = $subtest;
         $testId = $test . ($test != $subtest ? '-' . $subtest : '');
+        $dbLoadTime = NULL;
+        $dbLoadFromDump = FALSE;
         if ($config = $this->buildOltpBenchConfig()) {
           
           // idle test mode
@@ -1084,10 +1875,13 @@ class OltpBenchTest {
             if ($bcmd && $dump && file_exists($dump) && $this->mysqlOrPostgres) {
               $cmd = sprintf('%s %s < %s', $bcmd, $dbName, $dump);
               print_msg(sprintf('Attempting to import existing database dump file (size %s MB) - this may take a while', round((filesize($dump)/1024)/1024, 2)), $this->verbose, __FILE__, __LINE__);
+              $start = time();
               $ecode = trim(exec($cmd));
               if ($ecode > 0) print_msg(sprintf('Failed to load database - exit code %d', $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
               else {
                 print_msg(sprintf('Successfully loaded database from dump file %s', $dump), $this->verbose, __FILE__, __LINE__);
+                $dbLoadFromDump = TRUE;
+                $dbLoadTime = time() - $start;
                 $load = FALSE;
               }
             }
@@ -1106,7 +1900,9 @@ class OltpBenchTest {
                             $this->options['output'],
                             $testId);
               print_msg(sprintf('Loading database with test data - this may take a while'), $this->verbose, __FILE__, __LINE__);
+              $start = time();
               passthru($cmd);
+              $dbLoadTime = time() - $start;
               if (isset($this->options['db_dump']) && $this->mysqlOrPostgres) {
                 $cmd = sprintf('%s%s -h %s %s -%s %s %s %s > %s',
                                $this->options['db_type'] == 'postgres' && $this->options['db_pswd'] ? 'export PGPASSWORD=' . $this->options['db_pswd'] . '; ' : '',
@@ -1206,7 +2002,18 @@ class OltpBenchTest {
                                                    'time' => $this->steps[$stepIndex]['time'],
                                                    'warmup' => isset($this->options['test_warmup']) && $stepIndex === 0,
                                                    'start' => $started + $this->steps[$stepIndex]['start'],
-                                                   'stop' => $started + $this->steps[$stepIndex]['stop']);
+                                                   'stop' => $started + $this->steps[$stepIndex]['stop'],
+                                                   'db_name' => $dbName);
+                      if ($param = $this->getSizeParam($test)) {
+                        $val = $this->getSizeParam($test, TRUE);
+                        if ($mb = $this->paramToMb($val, $param)) $this->results[$key]['size'] = $mb;
+                        $this->results[$key]['test_size'] = $val;
+                        $this->results[$key]['test_size_label'] = strtoupper($test) . ' ' . $this->getSizeParamLabel($test);
+                      }
+                      if ($dbLoadTime) {
+                        $this->results[$key]['db_load_from_dump'] = $dbLoadFromDump;
+                        $this->results[$key]['db_load_time'] = $dbLoadTime;
+                      }
                       if ($test == 'jpab') $this->results[$key]['jpab_test'] = $subtest;
                       if (!$this->noRate) $this->results[$key]['rate'] = $this->steps[$stepIndex]['rate'];
                     }
@@ -1276,7 +2083,7 @@ class OltpBenchTest {
           if (in_array($p, array('throughput_values', 'latency_values', 'latency_values_min', 'latency_values_max')) && $metrics) {
             sort($metrics);
             $bkey = str_replace('_values', '', $p);
-            if (!preg_match('/_min/', $p) && !preg_match('/_max/', $p)) {
+            if (!preg_match('/_min/', $p)) {
               $this->results[$key][$bkey] = round(get_mean($metrics));
               $this->results[$key][sprintf('%s_stdev', $bkey)] = round(get_std_dev($metrics));
               foreach(array(10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99) as $perc) {
@@ -1287,8 +2094,8 @@ class OltpBenchTest {
                 $this->results[$key][sprintf('%s_max', $bkey)] = $metrics[count($metrics) - 1];
               }
             }
-            else if (preg_match('/_min/', $p)) $this->results[$key][sprintf('%s_min', $bkey)] = $metrics[0];
-            else if (preg_match('/_max/', $p)) $this->results[$key][sprintf('%s_max', $bkey)] = $metrics[count($metrics) - 1];
+            if (preg_match('/_min/', $p)) $this->results[$key][sprintf('%s_min', $bkey)] = $metrics[0];
+            if (preg_match('/_max/', $p)) $this->results[$key][sprintf('%s_max', $bkey)] = $metrics[count($metrics) - 1];
           }
         }
       }
@@ -1416,6 +2223,7 @@ class OltpBenchTest {
       'db_type' => array('option' => array('mysql', 'db2', 'postgres', 'oracle', 'sqlserver', 'sqlite', 'hstore', 'hsqldb', 'h2', 'monetdb', 'nuodb'), 'required' => TRUE),
       'db_url' => array('required' => TRUE),
       'db_user' => array('required' => TRUE),
+      'font_size' => array('min' => 6, 'max' => 64),
       'jpab_objects' => array('min' => $this->maxClients*100000),
       'jpab_ratio_delete' => array('min' => 0),
       'jpab_ratio_persist' => array('min' => 0),
@@ -1445,7 +2253,7 @@ class OltpBenchTest {
       'tatp_ratio_insert_call_forwarding' => array('min' => 0),
       'tatp_ratio_update_location' => array('min' => 0),
       'tatp_ratio_update_subscriber_data' => array('min' => 0),
-      'tatp_subscribers' => array('min' => $this->maxClients*10),
+      'tatp_subscribers' => array('min' => $this->maxClients),
       'test' => array('option' => array('auctionmark', 'epinions', 'jpab', 'resourcestresser', 'seats', 'tatp', 'tpcc', 'twitter', 'wikipedia', 'ycsb'), 'required' => TRUE),
       'test_clients' => array('min' => 1, 'required' => TRUE),
       'test_clients_step' => array('min' => 1),
@@ -1534,6 +2342,16 @@ class OltpBenchTest {
     }
     
     return $validated;
+  }
+  
+  
+  /**
+   * returns TRUE if wkhtmltopdf is installed, FALSE otherwise
+   * @return boolean
+   */
+  public final static function wkhtmltopdfInstalled() {
+    $ecode = trim(exec('which wkhtmltopdf; echo $?'));
+    return $ecode == 0;
   }
 }
 ?>

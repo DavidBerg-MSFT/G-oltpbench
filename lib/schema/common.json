@@ -3,6 +3,8 @@
   {"name": "collectd_rrd", "type": "char(255)"},
   {"name": "db_driver", "type": "char(32)"},
   {"name": "db_isolation", "type": "char(18)"},
+  {"name": "db_load_from_dump", "type": "boolean"},
+  {"name": "db_load_time", "type": "int unsigned"},
   {"name": "db_type", "type": "char(18)"},
   {"name": "iteration", "type": "tinyint unsigned"},
   {"name": "java_version", "type": "char(32)"},
