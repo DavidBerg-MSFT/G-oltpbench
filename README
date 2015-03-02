@@ -593,7 +593,7 @@ The following runtime parameters and environment metadata may be specified
                             directory or volume, but a free space buffer is 
                             desired
 
-* test_time                 The test duration in seconds - default is 60. A 
+* test_time                 The test duration in seconds - default is 300. A 
                             range or multiple values may be specified in the 
                             format [start]-[stop] or [value1],[value2]...
 
@@ -720,11 +720,13 @@ This sequence of tests would result in 5 separate database records
 DEPENDENCIES
 This benchmark has the following dependencies:
   
-  ant         Required if lib/oltpbench has not been built (build will be attempted when run)
+  ant         Java build tool - required if lib/oltbbench is not already compiled
   
   gnuplot     Generates report graphs (required unless --noreport set)
 
   java        OLTB-Bench is a Java application
+  
+  javac       Java compiler - required if lib/oltbbench is not already compiled
 
   mysql       Required if database type is mysql and --db_dump_file specified
   mysqldump   

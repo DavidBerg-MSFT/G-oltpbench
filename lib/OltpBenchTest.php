@@ -795,8 +795,8 @@ class OltpBenchTest {
             $tcoords = array();
             $lcoords = array();
             foreach($results as $result) {
-              $tcoords[sprintf('%d clients', $result['processes']*$result['clients'])] = $this->makeCoords($result['throughput_values'], FALSE, TRUE);
-              $lcoords[sprintf('%d clients', $result['processes']*$result['clients'])] = $this->makeCoords($result['latency_values_max'], FALSE, TRUE);
+              $tcoords[sprintf('%d clients', $result['processes']*$result['clients'])] = $this->makeCoords($result['throughput_values']);
+              $lcoords[sprintf('%d clients', $result['processes']*$result['clients'])] = $this->makeCoords($result['latency_values_max']);
             }
             $settings = array();
             $settings['nogrid'] = TRUE;
@@ -1056,7 +1056,7 @@ class OltpBenchTest {
           'test_clients' => isset($sysInfo['cpu_cores']) ? $sysInfo['cpu_cores'] : 2,
           'test_processes' => 1,
           'test_sample_interval' => 5,
-          'test_time' => 60,
+          'test_time' => 300,
           'tpcc_ratio_delivery' => 4,
           'tpcc_ratio_new_order' => 45,
           'tpcc_ratio_order_status' => 4,
@@ -1318,6 +1318,12 @@ class OltpBenchTest {
                               $this->steps[$i]['time']), 
                               $this->verbose, __FILE__, __LINE__);
           }
+        }
+        
+        // warmup with only 1 step - duplicate first step for second
+        if (isset($this->options['test_warmup']) && count($this->steps) == 1) {
+          print_msg('Duplicating first step because --test_warmup set with only 1 step', $this->verbose, __FILE__, __LINE__);
+          $this->steps[1] = $this->steps[0];
         }
         
         // reduce steady_state_window if it is larger than the longest test step
@@ -2168,7 +2174,10 @@ class OltpBenchTest {
    */
   public static function validateDependencies($options) {
     $dependencies = array('java' => 'java', 'zip' => 'zip');
-    if (!OltpBenchTest::oltpBenchIsBuilt()) $dependencies['ant'] = 'ant';
+    if (!OltpBenchTest::oltpBenchIsBuilt()) {
+      $dependencies['ant'] = 'ant';
+      $dependencies['javac'] = 'javac';
+    }
     // reporting dependencies
     if (!isset($options['noreport']) || !$options['noreport']) {
       $dependencies['gnuplot'] = 'gnuplot';
@@ -2196,7 +2205,7 @@ class OltpBenchTest {
   public function validateRunOptions() {
     $options = $this->getRunOptions();
     $validate = array(
-      'auctionmark_customers' => array('min' => $this->maxClients*1000),
+      'auctionmark_customers' => array('min' => 1000),
       'auctionmark_ratio_get_item' => array('min' => 0),
       'auctionmark_ratio_get_user_info' => array('min' => 0),
       'auctionmark_ratio_new_bid' => array('min' => 0),
@@ -2215,7 +2224,7 @@ class OltpBenchTest {
       'epinions_ratio_update_item_title' => array('min' => 0),
       'epinions_ratio_update_review_rating' => array('min' => 0),
       'epinions_ratio_update_trust_rating' => array('min' => 0),
-      'epinions_users' => array('min' => $this->maxClients*2000),
+      'epinions_users' => array('min' => 2000),
       'db_driver' => array('required' => TRUE),
       'db_dump' => array('writedir' => TRUE),
       'db_isolation' => array('option' => array('serializable', 'repeatable_read', 'read_committed', 'read_uncommitted'), 'required' => TRUE),
@@ -2224,7 +2233,7 @@ class OltpBenchTest {
       'db_url' => array('required' => TRUE),
       'db_user' => array('required' => TRUE),
       'font_size' => array('min' => 6, 'max' => 64),
-      'jpab_objects' => array('min' => $this->maxClients*100000),
+      'jpab_objects' => array('min' => 100000),
       'jpab_ratio_delete' => array('min' => 0),
       'jpab_ratio_persist' => array('min' => 0),
       'jpab_ratio_retrieve' => array('min' => 0),
@@ -2275,7 +2284,7 @@ class OltpBenchTest {
       'twitter_ratio_get_followers' => array('min' => 0),
       'twitter_ratio_get_user_tweets' => array('min' => 0),
       'twitter_ratio_insert_tweet' => array('min' => 0),
-      'twitter_users' => array('min' => $this->maxClients*500),
+      'twitter_users' => array('min' => 500),
       'wikipedia_pages' => array('min' => 1000),
       'wikipedia_ratio_add_watch_list' => array('min' => 0),
       'wikipedia_ratio_remove_watch_list' => array('min' => 0),
@@ -2288,7 +2297,7 @@ class OltpBenchTest {
       'ycsb_ratio_update' => array('min' => 0),
       'ycsb_ratio_delete' => array('min' => 0),
       'ycsb_ratio_read_modify_write' => array('min' => 0),
-      'ycsb_user_rows' => array('min' => $this->maxClients*10000)
+      'ycsb_user_rows' => array('min' => 10000)
     );
     
     $validated = validate_options($options, $validate);
