@@ -1336,10 +1336,12 @@ class OltpBenchTest {
           }
         }
         
-        // warmup with only 1 step - duplicate first step for second
-        if (isset($this->options['test_warmup']) && count($this->steps) == 1) {
-          print_msg('Duplicating first step because --test_warmup set with only 1 step', $this->verbose, __FILE__, __LINE__);
-          $this->steps[1] = $this->steps[0];
+        // repeat first step for warmup
+        if (isset($this->options['test_warmup'])) {
+          $steps = array($this->steps[0]);
+          foreach($this->steps as $step) $steps[] = $step;
+          $this->steps = $steps;
+          print_msg(sprintf('Duplicated first step for warmup - total steps = %d', count($this->steps)), $this->verbose, __FILE__, __LINE__);
         }
         
         // reduce steady_state_window if it is larger than the longest test step
