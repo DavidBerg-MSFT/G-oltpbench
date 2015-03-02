@@ -3,7 +3,7 @@
 	  <table class="meta">
 	  	<tr><th colspan="8"><?php echo strtoupper($test) ?> OLTP Benchmark Report</th></tr>
 	  	<tr>
-	  		<td colspan="3" style="width:50%"><label>Test Run:</label><span><?php echo date(OltpBenchTest::OLTP_BENCH_DATE_FORMAT, $result['start']) ?></span></td>
+	  		<td colspan="3" style="width:50%"><label>Test Run:</label><span><?php echo date(OltpBenchTest::OLTP_BENCH_DATE_FORMAT, $params['test']['Started']) ?></span></td>
 	  		<td colspan="3" style="width:50%"><label>Report Generated:</label><span><?php echo date(OltpBenchTest::OLTP_BENCH_DATE_FORMAT) ?></span></td>
 		    <td colspan="2">Page <?php echo $testPageNum ?> of <?php echo $testPages ?></td>
 	  	</tr>
@@ -29,7 +29,7 @@
       </tr>
 	    <?php } ?>
 	    <tr>
-	      <td colspan="8" class="bottom"><?php echo sprintf('%s - %s', strtoupper($result['test']), $label)  ?></td>
+	      <td colspan="8" class="bottom"><?php echo sprintf('%s - %s', strtoupper($params['test']['OLTP Test']), $label)  ?></td>
 	    </tr>
 	  </table>
 	</header>

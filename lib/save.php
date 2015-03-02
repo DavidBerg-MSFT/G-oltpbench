@@ -60,7 +60,7 @@ if ($db =& BenchmarkDb::getDb()) {
           if ($saved[$test]) print_msg(sprintf('Saved collectd rrd files %s successfully', basename($file)), isset($args['verbose']), __FILE__, __LINE__);
           else if ($saved[$test] === NULL) print_msg(sprintf('Unable to save collectd rrd files %s', basename($file)), isset($args['verbose']), __FILE__, __LINE__, TRUE);
         }
-        if ($db->addRow($test, $row)) print_msg(sprintf('Successfully saved test results row %d', $n+1), isset($args['verbose']), __FILE__, __LINE__);
+        if ($db->addRow('oltpbench_' . $test, $row)) print_msg(sprintf('Successfully saved test results row %d', $n+1), isset($args['verbose']), __FILE__, __LINE__);
         else print_msg(sprintf('Failed to save test results'), isset($args['verbose']), __FILE__, __LINE__, TRUE); 
       }
     }

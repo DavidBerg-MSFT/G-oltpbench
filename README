@@ -748,11 +748,10 @@ This benchmark generates the following artifacts:
 collectd-rrd.zip   collectd RRD files (see --collectd_rrd)
 
 oltp-bench.zip     Archive containing all OLTP-Bench test output files include:
-                   [oltp benchmark]-i[iteration #]-p[process #]-c[client #]-s[step].[ben.cnf|db.cnf|err|out|raw|res|summary]
+                   [oltp benchmark]-i[iteration #]-p[process #]-c[client #]-s[step].[ben.cnf|db.cnf|err|out|res|summary]
                     db.cnf:  RDBMS settings
                     err:     stderr
                     out:     stdout
-                    raw:     raw test results (entries for every test client in this process)
                     res:     results per test_sample_interval (aggregated for all test clients)
                     summary: summarized results
                    [oltp benchmark].xml => OLTP-Bench configuration file
@@ -797,7 +796,17 @@ latency_95: [95th percentile latency - ms]
 latency_99: [99th percentile latency - ms]
 latency_at_max: [latency at max throghput - ms]
 latency_max: [max latency - ms]
-latency_min: [min latency - ms]
+latency_max_10: [10th percentile max latency - ms]
+latency_max_20: [20th percentile max latency - ms]
+latency_max_30: [30th percentile max latency - ms]
+latency_max_40: [40th percentile max latency - ms]
+latency_max_50: [50th percentile max latency (median) - ms]
+latency_max_60: [60th percentile max latency - ms]
+latency_max_70: [70th percentile max latency - ms]
+latency_max_80: [80th percentile max latency - ms]
+latency_max_90: [90th percentile max latency - ms]
+latency_max_95: [95th percentile max latency - ms]
+latency_max_99: [99th percentile max latency - ms]
 latency_stdev: [latency standard deviation]
 meta_compute_service
 meta_compute_service_id*
@@ -822,7 +831,6 @@ meta_run_id
 meta_run_group_id
 meta_storage_config*
 meta_test_id*
-oltp_benchmark
 oltp_files: [URL to OLTP-Bench output files (if --store option used)]
 report_pdf: [URL to report PDF file (if --store option used)]
 report_zip: [URL to report ZIP file (if --store option used)]
@@ -834,7 +842,6 @@ test
 test_clients: [test clients for this step]
 test_processes
 test_rate: [test rate for this step - null if not set (max possible)]
-test_rate_time: [duration in seconds for this step before test_rate stability was achieved - unset if not reached]
 test_size
 test_size_ratio
 test_started: [when the test started]

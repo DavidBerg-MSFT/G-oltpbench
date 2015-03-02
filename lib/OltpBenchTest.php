@@ -29,6 +29,11 @@ class OltpBenchTest {
   const OLTP_BENCH_DATE_FORMAT = 'm/d/Y H:i e';
   
   /**
+   * database date format
+   */
+  const OLTP_BENCH_DB_DATA_FORMAT = 'Y-m-d H:i:s';
+  
+  /**
    * name of the file where serializes options should be written to for given 
    * test iteration
    */
@@ -72,15 +77,15 @@ class OltpBenchTest {
    *   jpab_test => JPAB subtest (jpab only)
    *   step => step #
    *   processes => # of processes
-   *   clients => # of clients per process
+   *   test_clients => # of clients per process
    *   rate => rate (if rate limited)
-   *   time => test time (seconds)
    *   warmup => true if this was the warmup (firs step if --test_warmup set)
-   *   start => start time (timestamp)
-   *   stop => stop time (timestamp)
+   *   step_started => start time (timestamp)
+   *   step_stopped => stop time (timestamp)
    *   size => dataset size (MB)
-   *   test_size => test size
    *   test_size_label => label for test size
+   *   test_size_value => test size value
+   *   test_time => test time (secs)
    *   db_name => database name
    *   db_load_from_dump => database loaded from dump?
    *   db_load_time => database load time - secs
@@ -109,7 +114,6 @@ class OltpBenchTest {
    *   latency_max_99: 99th percentile latency_max - ms
    *   latency_at_max: latency at max throughput - ms
    *   latency_max: max latency - ms
-   *   latency_min: min latency - ms
    *   latency_stdev: throughput standard deviation
    *   latency_values: array of all mean latency values indexed by seconds
    *   latency_values_max: array of all max percentile latency values indexed by seconds
@@ -290,7 +294,7 @@ class OltpBenchTest {
     $dir = $this->options['output'];
     
     // add test stop time
-    $this->options['test_stopped'] = date('Y-m-d H:i:s');
+    $this->options['test_stopped'] = date(OltpBenchTest::OLTP_BENCH_DB_DATA_FORMAT);
     $this->options['maxClients'] = $this->maxClients;
     if ($success) $this->options['results'] = $this->results;
     $this->options['steps'] = $this->steps;
@@ -309,6 +313,9 @@ class OltpBenchTest {
       $ended = TRUE;
     }
     
+    // remove raw output files (very large)
+    exec(sprintf('rm -f %s/*.raw', $dir));
+    
     // generate results archive oltp-bench.zip
     $zip = sprintf('%s/oltp-bench.zip', $dir);
     exec('rm -f ' . $zip);
@@ -316,7 +323,6 @@ class OltpBenchTest {
     exec(sprintf('cp %s/*.cnf %s/', $dir, $tdir));
     exec(sprintf('cp %s/*.err %s/', $dir, $tdir));
     exec(sprintf('cp %s/*.out %s/', $dir, $tdir));
-    exec(sprintf('cp %s/*.raw %s/', $dir, $tdir));
     exec(sprintf('cp %s/*.res %s/', $dir, $tdir));
     exec(sprintf('cp %s/*.xml %s/', $dir, $tdir));
     exec(sprintf('cp %s/*.sh %s/', $dir, $tdir));
@@ -388,7 +394,7 @@ class OltpBenchTest {
                                    2 => "lt 2 lc rgb '#4D4D4D' lw 3 pt -1");
         $settings['nogrid'] = TRUE;
         $settings['yMin'] = 0;
-        if ($graph = $this->generateGraph($dir, $prefix . '-throughput', $coords, 'Time (secs)', 'Throughput (req/sec)', NULL, $settings)) $graphs[sprintf('Throughput - %d clients', $result['processes']*$result['clients'])] = $graph;
+        if ($graph = $this->generateGraph($dir, $prefix . '-throughput', $coords, 'Time (secs)', 'Throughput (req/sec)', NULL, $settings)) $graphs[sprintf('Throughput - %d clients', $result['processes']*$result['test_clients'])] = $graph;
         
         // Throughput Histogram
         $coords = $this->makeCoords($result['throughput_values'], TRUE);
@@ -396,7 +402,7 @@ class OltpBenchTest {
         $settings['nogrid'] = TRUE;
         $settings['yMin'] = 0;
         $settings['yMax'] = '20%';
-        if ($graph = $this->generateGraph($dir, $prefix . '-throughput-histogram', $coords, 'Throughput (req/sec)', 'Samples', NULL, $settings, TRUE, 'histogram')) $graphs[sprintf('Throughput Histogram - %d clients', $result['processes']*$result['clients'])] = $graph;
+        if ($graph = $this->generateGraph($dir, $prefix . '-throughput-histogram', $coords, 'Throughput (req/sec)', 'Samples', NULL, $settings, TRUE, 'histogram')) $graphs[sprintf('Throughput Histogram - %d clients', $result['processes']*$result['test_clients'])] = $graph;
         
         // Throughput Percentiles
         $coords = array();
@@ -407,7 +413,7 @@ class OltpBenchTest {
         $settings['nogrid'] = TRUE;
         $settings['yMin'] = 0;
         $settings['yMax'] = '20%';
-        if ($graph = $this->generateGraph($dir, $prefix . '-throughput-percentiles', $coords, 'Percentiles', 'Throughput (req/sec)', NULL, $settings, TRUE, 'bar')) $graphs[sprintf('Throughput Percentiles - %d clients', $result['processes']*$result['clients'])] = $graph;
+        if ($graph = $this->generateGraph($dir, $prefix . '-throughput-percentiles', $coords, 'Percentiles', 'Throughput (req/sec)', NULL, $settings, TRUE, 'bar')) $graphs[sprintf('Throughput Percentiles - %d clients', $result['processes']*$result['test_clients'])] = $graph;
       }
       if (isset($result['latency_values'])) {
         // Latency Timeline
@@ -419,7 +425,7 @@ class OltpBenchTest {
                                    3 => "lt 1 lc rgb '#F15854' lw 3 pt -1");
         $settings['nogrid'] = TRUE;
         $settings['yMin'] = 0;
-        if ($graph = $this->generateGraph($dir, $prefix . '-latency', $coords, 'Time (secs)', 'Latency (ms)', NULL, $settings)) $graphs[sprintf('Latency - %d clients', $result['processes']*$result['clients'])] = $graph;
+        if ($graph = $this->generateGraph($dir, $prefix . '-latency', $coords, 'Time (secs)', 'Latency (ms)', NULL, $settings)) $graphs[sprintf('Latency - %d clients', $result['processes']*$result['test_clients'])] = $graph;
 
         // Latency Histogram
         $coords = $this->makeCoords($result['latency_values_max'], TRUE);
@@ -427,7 +433,7 @@ class OltpBenchTest {
         $settings['nogrid'] = TRUE;
         $settings['yMin'] = 0;
         $settings['yMax'] = '20%';
-        if ($graph = $this->generateGraph($dir, $prefix . '-latency-histogram', $coords, 'Max Latency (ms)', 'Samples', NULL, $settings, TRUE, 'histogram')) $graphs[sprintf('Max Latency Histogram - %d clients', $result['processes']*$result['clients'])] = $graph;
+        if ($graph = $this->generateGraph($dir, $prefix . '-latency-histogram', $coords, 'Max Latency (ms)', 'Samples', NULL, $settings, TRUE, 'histogram')) $graphs[sprintf('Max Latency Histogram - %d clients', $result['processes']*$result['test_clients'])] = $graph;
         
         // Latency Percentiles
         $coords = array();
@@ -438,7 +444,7 @@ class OltpBenchTest {
         $settings['nogrid'] = TRUE;
         $settings['yMin'] = 0;
         $settings['yMax'] = '20%';
-        if ($graph = $this->generateGraph($dir, $prefix . '-latency-percentiles', $coords, 'Percentiles', 'Max Latency (ms)', NULL, $settings, TRUE, 'bar')) $graphs[sprintf('Max Latency Percentiles - %d clients', $result['processes']*$result['clients'])] = $graph;
+        if ($graph = $this->generateGraph($dir, $prefix . '-latency-percentiles', $coords, 'Percentiles', 'Max Latency (ms)', NULL, $settings, TRUE, 'bar')) $graphs[sprintf('Max Latency Percentiles - %d clients', $result['processes']*$result['test_clients'])] = $graph;
       }
     }
     return $graphs;
@@ -763,8 +769,8 @@ class OltpBenchTest {
               if (!$fkey) $fkey = $key;
               $lkey = $key;
               $results[$key] = $this->results[$key];
-              $resultClients[] = $this->results[$key]['clients'];
-              $resultRates[] = isset($this->results[$key]['rate']) ? $this->results[$key]['rate'] : 'Unlimited';
+              $resultClients[] = $this->results[$key]['test_clients'];
+              $resultRates[] = isset($this->results[$key]['test_rate']) ? $this->results[$key]['test_rate'] : 'Unlimited';
               $resultTp[] = $this->results[$key]['throughput'];
               $resultLatency[] = $this->results[$key]['latency_max'];
               $resultLatencyAtMax[] = $this->results[$key]['latency_at_max'];
@@ -783,7 +789,7 @@ class OltpBenchTest {
                             'Load Time' => isset($results[$lkey]['db_load_time']) ? $results[$lkey]['db_load_time'] : 'Not Loaded',
                             'Loaded from Dump?' => isset($results[$lkey]['db_load_time']) ? ($results[$lkey]['db_load_from_dump'] ? 'Yes' : 'No') : 'NA',
                             'Dataset Size' => isset($results[$lkey]['size']) ? $results[$lkey]['size'] . ' MB' : 'NA');
-          if (isset($results[$lkey]['test_size_label'])) $dbParams[$results[$lkey]['test_size_label']] = $results[$lkey]['test_size'];
+          if (isset($results[$lkey]['test_size_label'])) $dbParams[$results[$lkey]['test_size_label']] = $results[$lkey]['test_size_value'];
 
           $graphs = array();
           $gresults = array();
@@ -795,8 +801,8 @@ class OltpBenchTest {
             $tcoords = array();
             $lcoords = array();
             foreach($results as $result) {
-              $tcoords[sprintf('%d clients', $result['processes']*$result['clients'])] = $this->makeCoords($result['throughput_values']);
-              $lcoords[sprintf('%d clients', $result['processes']*$result['clients'])] = $this->makeCoords($result['latency_values_max']);
+              $tcoords[sprintf('%d clients', $result['processes']*$result['test_clients'])] = $this->makeCoords($result['throughput_values']);
+              $lcoords[sprintf('%d clients', $result['processes']*$result['test_clients'])] = $this->makeCoords($result['latency_values_max']);
             }
             $settings = array();
             $settings['nogrid'] = TRUE;
@@ -823,11 +829,11 @@ class OltpBenchTest {
               'test' =>     array('OLTP Test' => strtoupper($results[$lkey]['test']) . ($result && isset($result['jpab_test']) ? ' [' . strtoupper($result['jpab_test']) . ']' : ''),
                                   'Step' => $result ? $result['step'] : '1-' . count($results),
                                   'Processes' => $results[$lkey]['processes'],
-                                  'Clients/Process' => $result ? $result['clients'] : implode(', ', $resultClients),
-                                  'Rate' => $result ? (isset($result['rate']) ? $result['rate'] : 'Unlimited') : implode(', ', $resultRates),
-                                  'Time' => $results[$lkey]['time'] . ' secs',
-                                  'Started' => date(OltpBenchTest::OLTP_BENCH_DATE_FORMAT, $result ? $result['start'] : $results[$fkey]['start']),
-                                  'Ended' => date(OltpBenchTest::OLTP_BENCH_DATE_FORMAT, $result ? $result['stop'] : $results[$lkey]['stop'])),
+                                  'Clients/Process' => $result ? $result['test_clients'] : implode(', ', $resultClients),
+                                  'Rate' => $result ? (isset($result['test_rate']) ? $result['test_rate'] : 'Unlimited') : implode(', ', $resultRates),
+                                  'Time' => $results[$lkey]['test_time'] . ' secs',
+                                  'Started' => date(OltpBenchTest::OLTP_BENCH_DATE_FORMAT, $result ? $result['step_started'] : $results[$fkey]['step_started']),
+                                  'Ended' => date(OltpBenchTest::OLTP_BENCH_DATE_FORMAT, $result ? $result['step_stopped'] : $results[$lkey]['step_stopped'])),
               'result' =>   array('Mean Throughput' => ($result ? $result['throughput'] : round(get_mean($resultTp))) . ' req/sec',
                                   'Median Throughput' => ($result ? $result['throughput_50'] : round(get_percentile($resultTp))) . ' req/sec',
                                   'Std Dev' => ($result ? $result['throughput_stdev'] : round(get_std_dev($resultTp))),
@@ -976,7 +982,15 @@ class OltpBenchTest {
       foreach($this->options as $key => $val) {
         if (!is_array($this->options[$key])) $brow[$key] = $val;
       }
-      foreach($this->options['results'] as $result) $rows[] = array_merge($brow, $result);
+      foreach($this->options['results'] as $result) {
+        if (isset($result['warmup']) && $result['warmup']) continue;
+        
+        if (isset($result['step_started']) && is_numeric($result['step_started'])) $result['step_started'] = date(OltpBenchTest::OLTP_BENCH_DB_DATA_FORMAT, $result['step_started']);
+        if (isset($result['step_stopped']) && is_numeric($result['step_stopped'])) $result['step_stopped'] = date(OltpBenchTest::OLTP_BENCH_DB_DATA_FORMAT, $result['step_stopped']);
+        $row = array_merge($brow, $result);
+        if (isset($row['test_rate']) && $this->noRate) unset($row['test_rate']);
+        $rows[] = $row;
+      }
     }
     return $rows;
   }
@@ -1267,7 +1281,7 @@ class OltpBenchTest {
             $vals[] = $m[1]*1;
             $diff = $m[2] - $m[1];
             $step = isset($this->options[$pstep]) && $this->options[$pstep] > 0 && $this->options[$pstep] < $diff ? $this->options[$pstep] : $diff;
-            while($vals[count($vals) - 1] <= $m[2]) $vals[] = $vals[count($vals) - 1] + $step;
+            while($vals[count($vals) - 1] < $m[2]) $vals[] = $vals[count($vals) - 1] + $step;
           }
           else if (preg_match('/,/', $this->options[$p])) {
             foreach(explode(',', trim($this->options[$p])) as $v) if (is_numeric($v) && $v > 0) $vals[] = $v*1; 
@@ -1957,7 +1971,7 @@ class OltpBenchTest {
 
               print_msg(sprintf('Executing test script %s', $script), $this->verbose, __FILE__, __LINE__);
               $started = time();
-              if (!isset($this->options['test_started'])) $this->options['test_started'] = date('Y-m-d H:i:s');
+              if (!isset($this->options['test_started'])) $this->options['test_started'] = date(OltpBenchTest::OLTP_BENCH_DB_DATA_FORMAT);
               passthru($script);
             }
             else {
@@ -2004,24 +2018,24 @@ class OltpBenchTest {
                       $this->results[$key] = array('test' => $test,
                                                    'step' => $stepIndex+1,
                                                    'processes' => $this->options['test_processes'],
-                                                   'clients' => $this->steps[$stepIndex]['clients'],
-                                                   'time' => $this->steps[$stepIndex]['time'],
+                                                   'test_clients' => $this->steps[$stepIndex]['clients'],
+                                                   'test_time' => $this->steps[$stepIndex]['time'],
                                                    'warmup' => isset($this->options['test_warmup']) && $stepIndex === 0,
-                                                   'start' => $started + $this->steps[$stepIndex]['start'],
-                                                   'stop' => $started + $this->steps[$stepIndex]['stop'],
+                                                   'step_started' => $started + $this->steps[$stepIndex]['start'],
+                                                   'step_stopped' => $started + $this->steps[$stepIndex]['stop'],
                                                    'db_name' => $dbName);
                       if ($param = $this->getSizeParam($test)) {
                         $val = $this->getSizeParam($test, TRUE);
                         if ($mb = $this->paramToMb($val, $param)) $this->results[$key]['size'] = $mb;
-                        $this->results[$key]['test_size'] = $val;
                         $this->results[$key]['test_size_label'] = strtoupper($test) . ' ' . $this->getSizeParamLabel($test);
+                        $this->results[$key]['test_size_value'] = $val;
                       }
                       if ($dbLoadTime) {
                         $this->results[$key]['db_load_from_dump'] = $dbLoadFromDump;
                         $this->results[$key]['db_load_time'] = $dbLoadTime;
                       }
                       if ($test == 'jpab') $this->results[$key]['jpab_test'] = $subtest;
-                      if (!$this->noRate) $this->results[$key]['rate'] = $this->steps[$stepIndex]['rate'];
+                      $this->results[$key]['test_rate'] = $this->noRate ? NULL : $this->steps[$stepIndex]['rate'];
                     }
                     foreach(array('throughput_values', 
                                   'latency_values', 
@@ -2100,7 +2114,14 @@ class OltpBenchTest {
                 $this->results[$key][sprintf('%s_max', $bkey)] = $metrics[count($metrics) - 1];
               }
             }
-            if (preg_match('/_min/', $p)) $this->results[$key][sprintf('%s_min', $bkey)] = $metrics[0];
+            if (preg_match('/_min/', $p)) {
+              foreach($metrics as $metric) {
+                if ($metric > 0) {
+                  $this->results[$key][sprintf('%s_min', $bkey)] = $metric;
+                  break;
+                }
+              }
+            }
             if (preg_match('/_max/', $p)) $this->results[$key][sprintf('%s_max', $bkey)] = $metrics[count($metrics) - 1];
           }
         }
