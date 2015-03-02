@@ -296,6 +296,7 @@ class OltpBenchTest {
     // add test stop time
     $this->options['test_stopped'] = date(OltpBenchTest::OLTP_BENCH_DB_DATA_FORMAT);
     $this->options['maxClients'] = $this->maxClients;
+    $this->options['noRate'] = $this->noRate;
     if ($success) $this->options['results'] = $this->results;
     $this->options['steps'] = $this->steps;
     
@@ -977,6 +978,7 @@ class OltpBenchTest {
   public function getResults() {
     $rows = NULL;
     if (is_dir($this->dir) && self::getSerializedOptions($this->dir) && $this->getRunOptions() && isset($this->options['results'])) {
+      $this->noRate = isset($this->options['noRate']) && $this->options['noRate'];
       $rows = array();
       $brow = array();
       foreach($this->options as $key => $val) {
@@ -1908,7 +1910,7 @@ class OltpBenchTest {
             else if ($dump && $this->mysqlOrPostgres) print_msg(sprintf('Database dump file %s does not exist for load', $dump), $this->verbose, __FILE__, __LINE__);
             
             if ($load) {
-              $cmd = sprintf('cd %s && ./oltpbenchmark -b %s -c %s%s --load=true -o %s/%s >%s/%s-load.out 2>%s/%s-load.err', 
+              $cmd = sprintf('cd %s && ./oltpbenchmark -b %s -c %s%s --load=true -o %s/%s >>%s/%s-load.out 2>>%s/%s-load.err', 
                             dirname(__FILE__) . '/oltpbench', 
                             $test, 
                             $config,
@@ -1924,7 +1926,7 @@ class OltpBenchTest {
               passthru($cmd);
               $dbLoadTime = time() - $start;
               if (isset($this->options['db_dump']) && $this->mysqlOrPostgres) {
-                $cmd = sprintf('%s%s -h %s %s -%s %s %s %s > %s',
+                $cmd = sprintf('%s%s -h %s %s -%s %s %s %s >> %s',
                                $this->options['db_type'] == 'postgres' && $this->options['db_pswd'] ? 'export PGPASSWORD=' . $this->options['db_pswd'] . '; ' : '',
                                $this->options['db_type'] == 'mysql' ? 'mysqldump' : 'pg_dump',
                                $this->options['db_host'],
@@ -1957,7 +1959,7 @@ class OltpBenchTest {
               for($i=0; $i<$this->options['test_processes']; $i++) {
                 $bfile = sprintf('%s/%s-p%d', $this->options['output'], $testId, $i+1);
                 exec(sprintf('rm -f %s*', $bfile));
-                fwrite($fp, sprintf("nohup ./oltpbenchmark -b %s -c %s --execute=true -s %d -o %s >%s.out 2>%s.err &\n",
+                fwrite($fp, sprintf("nohup ./oltpbenchmark -b %s -c %s --execute=true -s %d -o %s >>%s.out 2>>%s.err &\n",
                       $test, 
                       $config,
                       $this->options['test_sample_interval'],
