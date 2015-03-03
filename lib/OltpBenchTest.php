@@ -787,7 +787,7 @@ class OltpBenchTest {
                             'Name' => $results[$lkey]['db_name'],
                             'Driver' => $this->options['db_driver'],
                             'Isolation Level' => $this->options['db_isolation'],
-                            'Load Time' => isset($results[$lkey]['db_load_time']) ? $results[$lkey]['db_load_time'] : 'Not Loaded',
+                            'Load Time' => isset($results[$lkey]['db_load_time']) ? $results[$lkey]['db_load_time'] . ' secs' : 'Not Loaded',
                             'Loaded from Dump?' => isset($results[$lkey]['db_load_time']) ? ($results[$lkey]['db_load_from_dump'] ? 'Yes' : 'No') : 'NA',
                             'Dataset Size' => isset($results[$lkey]['size']) ? $results[$lkey]['size'] . ' MB' : 'NA');
           if (isset($results[$lkey]['test_size_label'])) $dbParams[$results[$lkey]['test_size_label']] = $results[$lkey]['test_size_value'];
