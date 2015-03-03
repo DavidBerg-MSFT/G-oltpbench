@@ -960,9 +960,9 @@ class OltpBenchTest {
   private function getPlatformParameters() {
     return array(
       'Provider' => isset($this->options['meta_provider']) ? $this->options['meta_provider'] : '',
-      'Service' => isset($this->options['meta_db_service']) ? isset($this->options['meta_db_service']) : (isset($this->options['meta_compute_service']) ? $this->options['meta_compute_service'] : ''),
+      'Service' => isset($this->options['meta_db_service']) ? $this->options['meta_db_service'] : (isset($this->options['meta_compute_service']) ? $this->options['meta_compute_service'] : ''),
       'Region' => isset($this->options['meta_region']) ? $this->options['meta_region'] : '',
-      'Configuration' => isset($this->options['meta_db_service_config']) ? isset($this->options['meta_db_service_config']) : (isset($this->options['meta_instance_id']) ? $this->options['meta_instance_id'] : ''),
+      'Configuration' => isset($this->options['meta_db_service_config']) ? $this->options['meta_db_service_config'] : (isset($this->options['meta_instance_id']) ? $this->options['meta_instance_id'] : ''),
       'CPU' => isset($this->options['meta_cpu']) ? $this->options['meta_cpu'] : '',
       'Memory' => isset($this->options['meta_memory']) ? $this->options['meta_memory'] : '',
       'Operating System' => isset($this->options['meta_os']) ? $this->options['meta_os'] : '',
