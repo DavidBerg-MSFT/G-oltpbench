@@ -530,7 +530,7 @@ class OltpBenchTest {
           if ($type == 'bar' && is_numeric($x) && $x > $maxX) $maxX = $x;
           fwrite($df, $x);
           for($n=0; $n<$maxPoints; $n++) {
-            $y = isset($points[$n]) && is_numeric($points[$n]) ? $points[$n]*1 : '';
+            $y = isset($points[$n]) && is_numeric($points[$n]) ? $points[$n]*1 : (isset($points[0]) && is_numeric($points[0]) ? $points[0] : 0);
             if (is_numeric($y) && ($minY === NULL || $y < $minY)) $minY = $y;
             if (is_numeric($y) && $y > $maxY) $maxY = $y;
             fwrite($df, sprintf("\t%s", $y));
