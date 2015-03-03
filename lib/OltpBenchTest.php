@@ -18,7 +18,7 @@
  * Used to manage OLTP Benchmark testing
  */
 require_once(dirname(__FILE__) . '/benchmark/util.php');
-ini_set('memory_limit', '16m');
+ini_set('memory_limit', '256m');
 date_default_timezone_set('UTC');
 
 class OltpBenchTest {
