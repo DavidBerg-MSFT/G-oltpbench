@@ -426,7 +426,7 @@ class OltpBenchTest {
                                    3 => "lt 1 lc rgb '#F15854' lw 3 pt -1");
         $settings['nogrid'] = TRUE;
         $settings['yMin'] = 0;
-        if ($graph = $this->generateGraph($dir, $prefix . '-latency', $coords, 'Time (secs)', 'Latency (ms)', NULL, $settings)) $graphs[sprintf('Latency - %d clients', $result['processes']*$result['test_clients'])] = $graph;
+        if ($graph = $this->generateGraph($dir, $prefix . '-latency', $coords, 'Time (secs)', 'Latency (µs)', NULL, $settings)) $graphs[sprintf('Latency - %d clients', $result['processes']*$result['test_clients'])] = $graph;
 
         // Latency Histogram
         $coords = $this->makeCoords($result['latency_values_max'], TRUE);
@@ -434,7 +434,7 @@ class OltpBenchTest {
         $settings['nogrid'] = TRUE;
         $settings['yMin'] = 0;
         $settings['yMax'] = '20%';
-        if ($graph = $this->generateGraph($dir, $prefix . '-latency-histogram', $coords, 'Max Latency (ms)', 'Samples', NULL, $settings, TRUE, 'histogram')) $graphs[sprintf('Max Latency Histogram - %d clients', $result['processes']*$result['test_clients'])] = $graph;
+        if ($graph = $this->generateGraph($dir, $prefix . '-latency-histogram', $coords, 'Max Latency (µs)', 'Samples', NULL, $settings, TRUE, 'histogram')) $graphs[sprintf('Max Latency Histogram - %d clients', $result['processes']*$result['test_clients'])] = $graph;
         
         // Latency Percentiles
         $coords = array();
@@ -445,7 +445,7 @@ class OltpBenchTest {
         $settings['nogrid'] = TRUE;
         $settings['yMin'] = 0;
         $settings['yMax'] = '20%';
-        if ($graph = $this->generateGraph($dir, $prefix . '-latency-percentiles', $coords, 'Percentiles', 'Max Latency (ms)', NULL, $settings, TRUE, 'bar')) $graphs[sprintf('Max Latency Percentiles - %d clients', $result['processes']*$result['test_clients'])] = $graph;
+        if ($graph = $this->generateGraph($dir, $prefix . '-latency-percentiles', $coords, 'Percentiles', 'Max Latency (µs)', NULL, $settings, TRUE, 'bar')) $graphs[sprintf('Max Latency Percentiles - %d clients', $result['processes']*$result['test_clients'])] = $graph;
       }
     }
     return $graphs;
@@ -809,7 +809,7 @@ class OltpBenchTest {
             $settings['nogrid'] = TRUE;
             $settings['yMin'] = 0;
             if ($graph = $this->generateGraph($dir, $test . '-throughput-by-client', $tcoords, 'Time (secs)', 'Throughput (req/sec)', NULL, $settings)) $graphs['Throughput by Clients'] = $graph;
-            if ($graph = $this->generateGraph($dir, $test . '-latency-by-client', $lcoords, 'Time (secs)', 'Max Latency (ms)', NULL, $settings)) $graphs['Max Latency by Clients'] = $graph;
+            if ($graph = $this->generateGraph($dir, $test . '-latency-by-client', $lcoords, 'Time (secs)', 'Max Latency (µs)', NULL, $settings)) $graphs['Max Latency by Clients'] = $graph;
           }
 
           foreach($results as $key => $result) {
