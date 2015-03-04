@@ -2082,9 +2082,44 @@ class OltpBenchTest {
     
     // complete results calculations
     foreach(array_keys($this->results) as $key) {
+      // add missing metrics for throughput entries where the number of values 
+      // is not equal to the number of processes
+      if (isset($this->results[$key]['throughput_values'])) {
+        $skeys = array_keys($this->results[$key]['throughput_values']);
+        $tmedian = $this->results[$key]['throughput_values'][$skeys[round(count($skeys)/2)]];
+        foreach($skeys as $x => $secs) {
+          if (count($this->results[$key]['throughput_values'][$secs]) < $this->options['test_processes']) {
+            print_msg(sprintf('Discovered row at %d seconds with only %d of %d throughput metrics', $secs, count($this->results[$key]['throughput_values'][$secs]), $this->options['test_processes']), $this->verbose, __FILE__, __LINE__);
+            while(count($this->results[$key]['throughput_values'][$secs]) != $this->options['test_processes']) {
+              $this->results[$key]['throughput_values'][$secs][] = isset($this->results[$key]['throughput_values'][$secs][0]) ? $this->results[$key]['throughput_values'][$secs][0] : 0;
+            }
+          }
+          // check for zero values and disproportionate in first and last 3 measurements
+          if ($x < 3 || $x > (count($this->results[$key]['throughput_values']) - 3)) {
+            $nonZero = NULL;
+            $zeroIndexes = array();
+            foreach(array_keys($this->results[$key]['throughput_values'][$secs]) as $z) {
+              if ($this->results[$key]['throughput_values'][$secs][$z] > 0) $nonZero = $this->results[$key]['throughput_values'][$secs][$z];
+              else $zeroIndexes[] = $z;
+            }
+            if ($nonZero && count($zeroIndexes)) {
+              print_msg(sprintf('Throughput record at %d seconds has %d zero value metrics - filling these with %d', $secs, count($zeroIndexes), $nonZero), $this->verbose, __FILE__, __LINE__);
+              foreach($zeroIndexes as $z) $this->results[$key]['throughput_values'][$secs][$z] = $nonZero;
+            }
+            // set to median if > 30% variance
+            $ratio = 100*(abs(array_sum($this->results[$key]['throughput_values'][$secs])-array_sum($tmedian))/array_sum($tmedian));
+            if ($ratio > 15) {
+              print_msg(sprintf('Throughput record %d at %d seconds has %d perc variance from the median throughput metric %d - setting to median', array_sum($this->results[$key]['throughput_values'][$secs]), $secs, $ratio, array_sum($tmedian)), $this->verbose, __FILE__, __LINE__);
+              $this->results[$key]['throughput_values'][$secs] = $tmedian;
+            }
+          }
+        }
+      }
+      
       // for each second interval, take the sum for throughput or median for 
       // latency and use the metrics from all seconds intervals for the 
       // aggregate result metrics
+      $skeys = array();
       foreach(array( 'throughput_values', 
                      'latency_values', 
                      'latency_values_min',
@@ -2096,8 +2131,10 @@ class OltpBenchTest {
                      'latency_values_99',
                      'latency_values_max') as $p) {
         if (isset($this->results[$key][$p])) {
+          
           $metrics = array();
           foreach(array_keys($this->results[$key][$p]) as $secs) {
+            $skeys[$secs] = TRUE;
             if ($this->results[$key][$p][$secs]) {
               $this->results[$key][$p][$secs] = preg_match('/^latency/', $p) ? round(get_percentile($this->results[$key][$p][$secs])) : array_sum($this->results[$key][$p][$secs]);
               $metrics[] = $this->results[$key][$p][$secs];
@@ -2130,6 +2167,7 @@ class OltpBenchTest {
           }
         }
       }
+      
       // now determine latency at max throughput
       $maxThroughput = 0;
       $maxThroughputSecs = NULL;
