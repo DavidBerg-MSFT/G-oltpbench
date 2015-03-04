@@ -89,31 +89,31 @@ class OltpBenchTest {
    *   db_name => database name
    *   db_load_from_dump => database loaded from dump?
    *   db_load_time => database load time - secs
-   *   latency: mean latency - ms
-   *   latency_10: 10th percentile latency - ms
-   *   latency_20: 20th percentile latency - ms
-   *   latency_30: 30th percentile latency - ms
-   *   latency_40: 40th percentile latency - ms
-   *   latency_50: 50th percentile latency (median) - ms
-   *   latency_60: 60th percentile latency - ms
-   *   latency_70: 70th percentile latency - ms
-   *   latency_80: 80th percentile latency - ms
-   *   latency_90: 90th percentile latency - ms
-   *   latency_95: 95th percentile latency - ms
-   *   latency_99: 99th percentile latency - ms
-   *   latency_max_10: 10th percentile latency_max - ms
-   *   latency_max_20: 20th percentile latency_max - ms
-   *   latency_max_30: 30th percentile latency_max - ms
-   *   latency_max_40: 40th percentile latency_max - ms
-   *   latency_max_50: 50th percentile latency_max (median) - ms
-   *   latency_max_60: 60th percentile latency_max - ms
-   *   latency_max_70: 70th percentile latency_max - ms
-   *   latency_max_80: 80th percentile latency_max - ms
-   *   latency_max_90: 90th percentile latency_max - ms
-   *   latency_max_95: 95th percentile latency_max - ms
-   *   latency_max_99: 99th percentile latency_max - ms
-   *   latency_at_max: latency at max throughput - ms
-   *   latency_max: max latency - ms
+   *   latency: mean latency - µs
+   *   latency_10: 10th percentile latency - µs
+   *   latency_20: 20th percentile latency - µs
+   *   latency_30: 30th percentile latency - µs
+   *   latency_40: 40th percentile latency - µs
+   *   latency_50: 50th percentile latency (median) - µs
+   *   latency_60: 60th percentile latency - µs
+   *   latency_70: 70th percentile latency - µs
+   *   latency_80: 80th percentile latency - µs
+   *   latency_90: 90th percentile latency - µs
+   *   latency_95: 95th percentile latency - µs
+   *   latency_99: 99th percentile latency - µs
+   *   latency_max_10: 10th percentile latency_max - µs
+   *   latency_max_20: 20th percentile latency_max - µs
+   *   latency_max_30: 30th percentile latency_max - µs
+   *   latency_max_40: 40th percentile latency_max - µs
+   *   latency_max_50: 50th percentile latency_max (median) - µs
+   *   latency_max_60: 60th percentile latency_max - µs
+   *   latency_max_70: 70th percentile latency_max - µs
+   *   latency_max_80: 80th percentile latency_max - µs
+   *   latency_max_90: 90th percentile latency_max - µs
+   *   latency_max_95: 95th percentile latency_max - µs
+   *   latency_max_99: 99th percentile latency_max - µs
+   *   latency_at_max: latency at max throughput - µs
+   *   latency_max: max latency - µs
    *   latency_stdev: throughput standard deviation
    *   latency_values: array of all mean latency values indexed by seconds
    *   latency_values_max: array of all max percentile latency values indexed by seconds
@@ -838,10 +838,10 @@ class OltpBenchTest {
               'result' =>   array('Mean Throughput' => ($result ? $result['throughput'] : round(get_mean($resultTp))) . ' req/sec',
                                   'Median Throughput' => ($result ? $result['throughput_50'] : round(get_percentile($resultTp))) . ' req/sec',
                                   'Std Dev' => ($result ? $result['throughput_stdev'] : round(get_std_dev($resultTp))),
-                                  'Mean Latency' => ($result ? $result['latency'] : round(get_mean($resultLatency))) . ' ms',
-                                  'Median Latency' => ($result ? $result['latency_50'] : round(get_percentile($resultLatency))) . ' ms',
+                                  'Mean Latency' => ($result ? $result['latency'] : round(get_mean($resultLatency))) . ' µs',
+                                  'Median Latency' => ($result ? $result['latency_50'] : round(get_percentile($resultLatency))) . ' µs',
                                   'Std Dev ' => ($result ? $result['latency_stdev'] : round(get_std_dev($resultLatency))),
-                                  'Latency at Max Throughput' => ($result ? $result['latency_at_max'] : round(get_mean($resultLatencyAtMax))) . ' ms',
+                                  'Latency at Max Throughput' => ($result ? $result['latency_at_max'] : round(get_mean($resultLatencyAtMax))) . ' µs',
                                   'Steady State' => $result ? (isset($result['steady_state']) ? $result['steady_state'] . ' secs' : 'Not Achieved') : ($resultSs ? round(get_mean($resultSs)) : 'Not Achieved'))
             );
             $headers = array();
