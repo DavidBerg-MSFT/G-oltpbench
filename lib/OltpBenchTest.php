@@ -2007,7 +2007,7 @@ class OltpBenchTest {
               if (file_exists($res) && filesize($res)) {
                 print_msg(sprintf('Processing results in %s', $res), $this->verbose, __FILE__, __LINE__);
                 foreach(file($res) as $x => $line) {
-                  if ($x > 0 && trim($line) && count($cols = explode(',', trim($line))) > 1 && is_numeric($cols[0]) && $cols[1] > 0) {
+                  if ($x > 0 && trim($line) && count($cols = explode(',', trim($line))) > 1 && is_numeric($cols[0])) {
                     $secs = $cols[0];
                     $stepIndex = 0;
                     // determine step index
