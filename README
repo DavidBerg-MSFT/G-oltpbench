@@ -12,7 +12,9 @@ The following runtime parameters and environment metadata may be specified
 * auctionmark_customers     Number auctionmark customers - default is the max 
                             value in --test_clients multiplied by 1000. Value 
                             should be a multiple of 1000. Every 1000 customers 
-                            requires approximately 160MB disk space
+                            requires approximately 160MB disk space. Due to a 
+                            problem with OLTB Bench data loading (duplicate key
+                            errors), the max value for this parameter is 10000
 
 * auctionmark_ratio_get_item Get Item transaction ratio - default 45
                             (sum of all auctionmark_ratio_* values should be 100)
@@ -150,7 +152,10 @@ The following runtime parameters and environment metadata may be specified
                             execute a benchmark)
 
 * db_name                   The database name - default is oltp_[benchmark] (
-                            string [benchmark] is replaced with database name)
+                            string [benchmark] is replaced with database name).
+                            If unique databases for multiple test processes are
+                            desired (see test_processes), db_name may include 
+                            a [pid] substring (e.g. oltp_[benchmark]_[pid])
 
 * db_nodrop                 Don't drop the database upon completion of testing 
                             when --db_create and --db_load flags are also set
@@ -561,7 +566,10 @@ The following runtime parameters and environment metadata may be specified
                             tests):
                             
                               auctionmark_customers => Every 1000 customers 
-                                requires approximately 160MB disk space
+                                requires approximately 160MB disk space. Due to
+                                an OLTB Bench related error with data loading,
+                                a hard cap of 10000 customers is enforced 
+                                (1600MB)
                               
                               epinions_users => Every 2000 user requires 
                                 approximately 30MB disk space
@@ -583,6 +591,10 @@ The following runtime parameters and environment metadata may be specified
                               
                               ycsb_user_rows => Every 1000 rows requires 
                                 approximately 4MB disk space
+                                
+                            If test_processes > 1 and db_name contains [pid], 
+                            the size designated will be for each unique process
+                            database
 
 * test_size_ratio           If 'test_size' is set, this parameter may be used
                             to designate a percentage of that value to use for
@@ -779,6 +791,7 @@ db_driver
 db_isolation
 db_load_from_dump: [true if database load was from a dump file]
 db_load_time: [database load time - secs (if applicable)]
+db_per_process: [true if unique database used for each process (test_processes == 1 or db_name contains [pid])]
 db_type
 iteration*: [iteration number (used with incremental result directories)]
 java_version: [version of java present]

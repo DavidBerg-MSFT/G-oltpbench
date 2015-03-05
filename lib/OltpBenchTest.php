@@ -40,6 +40,12 @@ class OltpBenchTest {
   const OLTP_BENCH_TEST_OPTIONS_FILE_NAME = '.options';
   
   /**
+   * true if unique database used for each process (test_processes == 1 or 
+   * db_name contains [pid])
+   */
+  private $dbPerProcess;
+  
+  /**
    * optional results directory object was instantiated for
    */
   private $dir;
@@ -209,6 +215,12 @@ class OltpBenchTest {
    * @return string
    */
   private function buildOltpBenchConfig() {
+    $pids = array();
+    if ($this->options['test_processes'] > 1 && $this->dbPerProcess) {
+      for($pid=1; $pid<= $this->options['test_processes']; $pid++) $pids[] = $pid;
+    }
+    else $pids[] = '';
+        
     $dbUrl = str_replace('[benchmark]', $this->test, $this->options['db_url']);
     $fp = fopen($config = sprintf('%s/%s.xml', $this->options['output'], $this->test . ($this->test != $this->subtest ? '-' . $this->subtest : '')), 'w');
     print_msg(sprintf('Generating OLTP-Bench XML config %s', $config), $this->verbose, __FILE__, __LINE__);
@@ -225,13 +237,21 @@ class OltpBenchTest {
     if ($this->test == 'jpab') {
       $pfile = sprintf('%s/jpab-%s-persistence.xml', $this->options['output'], $this->subtest);
       if (!file_exists($pfile)) {
-        $persistence = file_get_contents(dirname(__FILE__) . '/persistence-template.xml');
-        $persistence = str_replace('[test]', $this->subtest, $persistence);
-        $persistence = str_replace('[db_driver]', $this->options['db_driver'], $persistence);
-        $persistence = str_replace('[db_url]', $dbUrl, $persistence);
-        $persistence = str_replace('[db_user]', $this->options['db_user'], $persistence);
-        $persistence = str_replace('[db_pswd]', isset($this->options['db_pswd']) ? $this->options['db_pswd'] : '', $persistence);
-        $persistence = str_replace('[db_dialect]', $this->getHibernateDialect(), $persistence);
+        $persistence = '<?xml version="1.0" encoding="UTF-8"?>';
+        $persistence .= "\n";
+        $persistence .= '<persistence xmlns="http://java.sun.com/xml/ns/persistence" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://java.sun.com/xml/ns/persistence http://java.sun.com/xml/ns/persistence/persistence_2_0.xsd" version="2.0">';
+        $persistence .= "\n";
+        foreach($pids as $pid) {
+          $content = file_get_contents(dirname(__FILE__) . '/persistence-template.xml');
+          $content = str_replace('[test]', $this->subtest . $pid, $content);
+          $content = str_replace('[db_driver]', $this->options['db_driver'], $content);
+          $content = str_replace('[db_url]', str_replace('[pid]', $pid, $dbUrl), $content);
+          $content = str_replace('[db_user]', $this->options['db_user'], $content);
+          $content = str_replace('[db_pswd]', isset($this->options['db_pswd']) ? $this->options['db_pswd'] : '', $content);
+          $content = str_replace('[db_dialect]', $this->getHibernateDialect(), $content);
+          $persistence .= $content . "\n";
+        }
+        $persistence .= "</persistence>\n";
         if (file_put_contents($pfile, $persistence)) print_msg(sprintf('Generated JPA persistence.xml file in %s', $pfile), $this->verbose, __FILE__, __LINE__);
         else print_msg(sprintf('Unable to write JPA persistence.xml file %s', $pfile), $this->verbose, __FILE__, __LINE__, TRUE);
       }
@@ -246,7 +266,7 @@ class OltpBenchTest {
         fclose($fp);
         return NULL;
       }
-      fwrite($fp, sprintf("\n  <persistence-unit>Hibernate-%s</persistence-unit>", $this->subtest));
+      fwrite($fp, sprintf("\n  <persistence-unit>Hibernate-%s%s</persistence-unit>", $this->subtest, $this->options['test_processes'] > 1 && $this->dbPerProcess ? '[pid]' : ''));
       fwrite($fp, sprintf("\n  <testClass>%s</testClass>", OltpBenchTest::getJpabTestClass($this->subtest)));
     }
     // Twitter trace files
@@ -281,6 +301,19 @@ class OltpBenchTest {
     fwrite($fp, "\n  </transactiontypes>");
     fwrite($fp, "\n</parameters>\n");
     fclose($fp);
+    
+    // create separate config for each process
+    if ($this->options['test_processes'] > 1 && $this->dbPerProcess) {
+      for($pid=1; $pid<= $this->options['test_processes']; $pid++) {
+        $pconfig = str_replace('.xml', $pid . '.xml', $config);
+        $xml = str_replace('[pid]', $pid, file_get_contents($config));
+        $fp = fopen($pconfig, 'w');
+        fwrite($fp, $xml);
+        fclose($fp);
+        print_msg(sprintf('Created duplicate config %s for process %d using database name %s', $pconfig, $pid, str_replace('[pid]', $pid, $this->options['db_name'])), $this->verbose, __FILE__, __LINE__);
+      }
+    }
+    
     return $config;
   }
   
@@ -299,6 +332,7 @@ class OltpBenchTest {
     $this->options['noRate'] = $this->noRate;
     if ($success) $this->options['results'] = $this->results;
     $this->options['steps'] = $this->steps;
+    $this->options['db_per_process'] = $this->dbPerProcess;
     
     if ($java = get_java_version()) {
       $this->options['java_version'] = sprintf('%s%s', $java['vendor'] ? $java['vendor'] . ' ' : '', $java['version']);
@@ -1296,7 +1330,10 @@ class OltpBenchTest {
           // determine max number of clients
           foreach($this->options['test_clients'] as $c) if ($c > $this->maxClients) $this->maxClients = $c;
           if (!isset($this->options['tpcc_warehouses'])) $this->options['tpcc_warehouses'] = $this->maxClients;
-          if (!isset($this->options['auctionmark_customers'])) $this->options['auctionmark_customers'] = $this->maxClients*1000;
+          if (!isset($this->options['auctionmark_customers'])) {
+            $this->options['auctionmark_customers'] = $this->maxClients*1000;
+            if ($this->options['auctionmark_customers'] > 10000) $this->options['auctionmark_customers'] = 10000;
+          }
           if (!isset($this->options['epinions_users'])) $this->options['epinions_users'] = $this->maxClients*20000;
           if (!isset($this->options['jpab_objects'])) $this->options['jpab_objects'] = $this->maxClients*100000;
           if (!isset($this->options['seats_customers'])) {
@@ -1357,6 +1394,9 @@ class OltpBenchTest {
         
         // mysql or postgres
         $this->mysqlOrPostgres = $this->options['db_type'] == 'mysql' || $this->options['db_type'] == 'postgres';
+        
+        // unique database per process
+        $this->dbPerProcess = $this->options['test_processes'] == 0 || preg_match('/\[pid\]/', $this->options['db_name']);
         
       }
     }
@@ -1745,6 +1785,8 @@ class OltpBenchTest {
       case 'auctionmark_customers':
         $val = 1000*round($mb/160);
         if ($val < 1000) $val = 1000;
+        // hard limit of 10k customers due to OLTP data load bug
+        if ($val > 10000) $val = 10000;
         break;
       case 'epinions_users':
         $val = 2000*round($mb/30);
@@ -1843,13 +1885,24 @@ class OltpBenchTest {
     foreach($this->options['test'] as $test) {
       $rrdStarted = isset($this->options['collectd_rrd']) ? ch_collectd_rrd_start($this->options['collectd_rrd_dir'], $this->verbose) : FALSE;
       $this->test = $test;
+      $dbNames = array();
       $dbName = str_replace('[benchmark]', $test, $this->options['db_name']);
+      if ($this->options['test_processes'] > 1 && $this->dbPerProcess) {
+        for($pid=1; $pid<= $this->options['test_processes']; $pid++) $dbNames[] = str_replace('[pid]', $pid, $dbName);
+      }
+      else $dbNames[] = $dbName;
+      
       foreach($this->getSubTests() as $subtest) {
         $this->subtest = $subtest;
         $testId = $test . ($test != $subtest ? '-' . $subtest : '');
         $dbLoadTime = NULL;
         $dbLoadFromDump = FALSE;
         if ($config = $this->buildOltpBenchConfig()) {
+          $configs = array();
+          if ($this->options['test_processes'] > 1 && $this->dbPerProcess) {
+            for($pid=1; $pid<= $this->options['test_processes']; $pid++) $configs[] = str_replace('.xml', $pid . '.xml', $config);
+          }
+          else $configs[] = $config;
           
           // idle test mode
           if (isset($this->options['test_idle'])) {
@@ -1861,7 +1914,7 @@ class OltpBenchTest {
             continue;
           }
           
-          $dropDbCmd = NULL;
+          $dropDbCmds = array();
           print_msg(sprintf('Starting test %s with %d processes', $testId, $this->options['test_processes']), $this->verbose, __FILE__, __LINE__);
           
           // create and load database
@@ -1883,13 +1936,15 @@ class OltpBenchTest {
             // attempt to drop and create database
             if ($bcmd && isset($this->options['db_create'])) {
               foreach(array('drop', 'create') as $q) {
-                $cmd = sprintf('%s%s %s "%s database %s" >/dev/null 2>&1', 
-                               $bcmd, 
-                               $this->options['db_type'] == 'postgres' ? ' postgres' : '', $this->options['db_type'] == 'mysql' ? '-e' : '-c', $q, $dbName);
-                if (!$dropDbCmd) $dropDbCmd = $cmd;
-                $ecode = trim(exec($cmd));
-                if ($ecode > 0) print_msg(sprintf('Unable to %s database %s - exit code %d', $q, $dbName, $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
-                else print_msg(sprintf('Successfully executed %s database %s', $q, $dbName), $this->verbose, __FILE__, __LINE__);
+                foreach($dbNames as $dbName) {
+                  $cmd = sprintf('%s%s %s "%s database %s" >/dev/null 2>&1', 
+                                 $bcmd, 
+                                 $this->options['db_type'] == 'postgres' ? ' postgres' : '', $this->options['db_type'] == 'mysql' ? '-e' : '-c', $q, $dbName);
+                  if ($q == 'drop') $dropDbCmds[] = $cmd;
+                  $ecode = trim(exec($cmd));
+                  if ($ecode > 0) print_msg(sprintf('Unable to %s database %s - exit code %d', $q, $dbName, $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
+                  else print_msg(sprintf('Successfully executed %s database %s', $q, $dbName), $this->verbose, __FILE__, __LINE__); 
+                }
               }
             }
             $load = TRUE;
@@ -1897,36 +1952,40 @@ class OltpBenchTest {
             if ($dump = isset($this->options['db_dump']) ? str_replace('[scalefactor]', $this->getScaleFactor(), str_replace('[subtest]', $subtest, str_replace('[benchmark]', $test, $this->options['db_dump']))) : NULL) $dump = str_replace(sprintf('%s-%s', $test, $test), $test, $dump);
             
             if ($bcmd && $dump && file_exists($dump) && $this->mysqlOrPostgres) {
-              $cmd = sprintf('%s %s < %s', $bcmd, $dbName, $dump);
-              print_msg(sprintf('Attempting to import existing database dump file (size %s MB) - this may take a while', round((filesize($dump)/1024)/1024, 2)), $this->verbose, __FILE__, __LINE__);
-              $start = time();
-              $ecode = trim(exec($cmd));
-              if ($ecode > 0) print_msg(sprintf('Failed to load database - exit code %d', $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
-              else {
-                print_msg(sprintf('Successfully loaded database from dump file %s', $dump), $this->verbose, __FILE__, __LINE__);
-                $dbLoadFromDump = TRUE;
-                $dbLoadTime = time() - $start;
-                $load = FALSE;
+              foreach($dbNames as $dbName) {
+                $cmd = sprintf('%s %s < %s', $bcmd, $dbName, $dump);
+                print_msg(sprintf('Attempting to import existing database dump file (size %s MB) to database %s - this may take a while', round((filesize($dump)/1024)/1024, 2), $dbName), $this->verbose, __FILE__, __LINE__);
+                $start = time();
+                $ecode = trim(exec($cmd));
+                if ($ecode > 0) print_msg(sprintf('Failed to load database - exit code %d', $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
+                else {
+                  print_msg(sprintf('Successfully loaded database from dump file %s', $dump), $this->verbose, __FILE__, __LINE__);
+                  $dbLoadFromDump = TRUE;
+                  $dbLoadTime = time() - $start;
+                  $load = FALSE;
+                }
               }
             }
             else if ($dump && $this->mysqlOrPostgres) print_msg(sprintf('Database dump file %s does not exist for load', $dump), $this->verbose, __FILE__, __LINE__);
             
             if ($load) {
-              $cmd = sprintf('cd %s && ./oltpbenchmark -b %s -c %s%s --load=true -o %s/%s >>%s/%s-load.out 2>>%s/%s-load.err', 
-                            dirname(__FILE__) . '/oltpbench', 
-                            $test, 
-                            $config,
-                            isset($this->options['db_create']) ? ' --create=true' : '',
-                            $this->options['output'],
-                            $testId,
-                            $this->options['output'],
-                            $testId,
-                            $this->options['output'],
-                            $testId);
-              print_msg(sprintf('Loading database with test data - this may take a while'), $this->verbose, __FILE__, __LINE__);
-              $start = time();
-              passthru($cmd);
-              $dbLoadTime = time() - $start;
+              foreach($configs as $config) {
+                $cmd = sprintf('cd %s && ./oltpbenchmark -b %s -c %s%s --load=true -o %s/%s >>%s/%s-load.out 2>>%s/%s-load.err', 
+                              dirname(__FILE__) . '/oltpbench', 
+                              $test, 
+                              $config,
+                              isset($this->options['db_create']) ? ' --create=true' : '',
+                              $this->options['output'],
+                              $testId,
+                              $this->options['output'],
+                              $testId,
+                              $this->options['output'],
+                              $testId);
+                print_msg(sprintf('Loading database with test data - this may take a while'), $this->verbose, __FILE__, __LINE__);
+                $start = time();
+                passthru($cmd);
+                $dbLoadTime = time() - $start;
+              }
               if (isset($this->options['db_dump']) && $this->mysqlOrPostgres) {
                 $cmd = sprintf('%s%s -h %s %s -%s %s %s %s >> %s',
                                $this->options['db_type'] == 'postgres' && $this->options['db_pswd'] ? 'export PGPASSWORD=' . $this->options['db_pswd'] . '; ' : '',
@@ -1936,7 +1995,7 @@ class OltpBenchTest {
                                $this->options['db_type'] == 'mysql' ? 'u' : 'U',
                                $this->options['db_user'],
                                $this->options['db_type'] == 'mysql' && $this->options['db_pswd'] ? '-p"' . $this->options['db_pswd'] . '"' : '-w -c',
-                               $dbName,
+                               $dbNames[0],
                                $dump);
                 print_msg(sprintf('Attempting to export database dump to file - this may take a while'), $this->verbose, __FILE__, __LINE__);
                 $ecode = trim(exec($cmd));
@@ -1963,7 +2022,7 @@ class OltpBenchTest {
                 exec(sprintf('rm -f %s*', $bfile));
                 fwrite($fp, sprintf("nohup ./oltpbenchmark -b %s -c %s --execute=true -s %d -o %s >>%s.out 2>>%s.err &\n",
                       $test, 
-                      $config,
+                      isset($configs[$i]) ? $configs[$i] : $configs[0],
                       $this->options['test_sample_interval'],
                       $bfile,
                       $bfile,
@@ -1986,10 +2045,12 @@ class OltpBenchTest {
             print_msg('Test script execution complete - processing results', $this->verbose, __FILE__, __LINE__);
             
             // --db_create and --db_load were set - drop database
-            if (!isset($this->options['db_nodrop']) && $dropDbCmd) {
-              $ecode = trim(exec($dropDbCmd));
-              if ($ecode > 0) print_msg(sprintf('Unable to drop database %s - exit code %d', $dbName, $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
-              else print_msg(sprintf('Successfully dropped database %s', $dbName), $this->verbose, __FILE__, __LINE__);
+            if (!isset($this->options['db_nodrop']) && $dropDbCmds) {
+              foreach($dropDbCmds as $dropDbCmd) {
+                $ecode = trim(exec($dropDbCmd));
+                if ($ecode > 0) print_msg(sprintf('Unable to drop database using "%s" - exit code %d', $dropDbCmd, $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
+                else print_msg(sprintf('Successfully dropped database using "%s"', $dropDbCmd), $this->verbose, __FILE__, __LINE__);
+              }
             }
             
             // process test results
@@ -2027,7 +2088,7 @@ class OltpBenchTest {
                                                    'warmup' => isset($this->options['test_warmup']) && $stepIndex === 0,
                                                    'step_started' => $started + $this->steps[$stepIndex]['start'],
                                                    'step_stopped' => $started + $this->steps[$stepIndex]['stop'],
-                                                   'db_name' => $dbName);
+                                                   'db_name' => isset($dbNames[$i]) ? $dbNames[$i] : $dbNames[0]);
                       if ($param = $this->getSizeParam($test)) {
                         $val = $this->getSizeParam($test, TRUE);
                         if ($mb = $this->paramToMb($val, $param)) $this->results[$key]['size'] = $mb;
@@ -2266,9 +2327,10 @@ class OltpBenchTest {
    * @return array
    */
   public function validateRunOptions() {
+    $tests = array('auctionmark', 'epinions', 'jpab', 'resourcestresser', 'seats', 'tatp', 'tpcc', 'twitter', 'wikipedia', 'ycsb');
     $options = $this->getRunOptions();
     $validate = array(
-      'auctionmark_customers' => array('min' => 1000),
+      'auctionmark_customers' => array('min' => 1000, 'max' => 10000),
       'auctionmark_ratio_get_item' => array('min' => 0),
       'auctionmark_ratio_get_user_info' => array('min' => 0),
       'auctionmark_ratio_new_bid' => array('min' => 0),
@@ -2326,7 +2388,7 @@ class OltpBenchTest {
       'tatp_ratio_update_location' => array('min' => 0),
       'tatp_ratio_update_subscriber_data' => array('min' => 0),
       'tatp_subscribers' => array('min' => $this->maxClients),
-      'test' => array('option' => array('auctionmark', 'epinions', 'jpab', 'resourcestresser', 'seats', 'tatp', 'tpcc', 'twitter', 'wikipedia', 'ycsb'), 'required' => TRUE),
+      'test' => array('option' => $tests, 'required' => TRUE),
       'test_clients' => array('min' => 1, 'required' => TRUE),
       'test_clients_step' => array('min' => 1),
       'test_processes' => array('min' => 1, 'required' => TRUE),
@@ -2366,6 +2428,13 @@ class OltpBenchTest {
     $validated = validate_options($options, $validate);
     if (!is_array($validated)) $validated = array();
     
+    // remove test specific parameters when that test is not selected
+    foreach(array_keys($validated) as $param) {
+      $pieces = explode('_', $param);
+      $test = $pieces[0];
+      if (in_array($test, $tests) && !in_array($test, $options['test'])) unset($validated[$param]);
+    }
+    
     // validate collectd rrd options
     if (isset($options['collectd_rrd'])) {
       if (!ch_check_sudo()) $validated['collectd_rrd'] = 'sudo privilege is required to use this option';
@@ -2375,11 +2444,13 @@ class OltpBenchTest {
     }
     
     // ratios for each test must sum to 100
-    foreach($options['test'] as $test) {
-      if (($sum = array_sum($this->getTestWeights($test))) != 100) {
-        $validated['test'] = sprintf('The sum of ratios for test %s must be 100 (currently %d)', $test, $sum);
-        break;
-      }
+    if (!isset($validated['test'])) {
+      foreach($options['test'] as $test) {
+        if (($sum = array_sum($this->getTestWeights($test))) != 100) {
+          $validated['test'] = sprintf('The sum of ratios for test %s must be 100 (currently %d)', $test, $sum);
+          break;
+        }
+      } 
     }
     
     if (!isset($validate['db_url']) && !preg_match('/^[a-zA-Z0-9]+:[a-zA-Z]+:\/\/[a-zA-Z0-9\.]+[\:0-9]*\/[a-zA-Z0-9]+$/', $options['db_url'])) $validated['db_url'] = sprintf('--db_url %s is not valid. Correct format for a JDBC URL is jdbc:[db_type]://[db_host]:[db_port]/[db_name]', $options['db_url']);
