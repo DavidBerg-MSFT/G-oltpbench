@@ -769,9 +769,9 @@ class OltpBenchTest {
       foreach(array_keys($this->results) as $key) {
         $test = $this->results[$key]['test'];
         if (!in_array($test, $tests)) $tests[] = $test;
-        if (isset($this->results[$key]['subtest'])) {
+        if (isset($this->results[$key]['jpab_test'])) {
           if (!isset($subtests[$test])) $subtests[$test] = array();
-          $subtests[$test][] = $this->results[$key]['subtest'];
+          if (!in_array($this->results[$key]['jpab_test'], $subtests[$test])) $subtests[$test][] = $this->results[$key]['jpab_test'];
         }
       }
       $title = 'OLTP Performance Report - ' . implode(' ', $tests);
@@ -799,7 +799,7 @@ class OltpBenchTest {
           $resultLatencyAtMax = array();
           $resultSs = array();
           foreach(array_keys($this->results) as $key) {
-            if ($this->results[$key]['test'] == $test && ($subtest == $test || (isset($this->results[$key]['subtest']) && $this->results[$key]['subtest'] == $subtest))) {
+            if ($this->results[$key]['test'] == $test && ($subtest == $test || (isset($this->results[$key]['jpab_test']) && $this->results[$key]['jpab_test'] == $subtest))) {
               if (isset($this->results[$key]['warmup']) && $this->results[$key]['warmup']) continue;
               if (!$fkey) $fkey = $key;
               $lkey = $key;
@@ -820,7 +820,7 @@ class OltpBenchTest {
           $dbParams = array('Type' => $this->options['db_type'],
                             'Name' => $results[$lkey]['db_name'],
                             'Driver' => $this->options['db_driver'],
-                            'Isolation Level' => $this->options['db_isolation'],
+                            'Isolation Level' => ucwords(str_replace('_', ' ', $this->options['db_isolation'])),
                             'Load Time' => isset($results[$lkey]['db_load_time']) ? $results[$lkey]['db_load_time'] . ' secs' : 'Not Loaded',
                             'Loaded from Dump?' => isset($results[$lkey]['db_load_time']) ? ($results[$lkey]['db_load_from_dump'] ? 'Yes' : 'No') : 'NA',
                             'Dataset Size' => isset($results[$lkey]['size']) ? $results[$lkey]['size'] . ' MB' : 'NA');
@@ -1053,7 +1053,7 @@ class OltpBenchTest {
           'auctionmark_ratio_update_item' => 3,
           'collectd_rrd_dir' => '/var/lib/collectd/rrd',
           'db_host' => 'localhost',
-          'db_isolation' => 'serializable',
+          'db_isolation' => 'repeatable_read',
           'db_load' => FALSE,
           'db_name' => 'oltp_[benchmark]',
           'db_type' => 'mysql',
@@ -1335,14 +1335,21 @@ class OltpBenchTest {
             if ($this->options['auctionmark_customers'] > 10000) $this->options['auctionmark_customers'] = 10000;
           }
           if (!isset($this->options['epinions_users'])) $this->options['epinions_users'] = $this->maxClients*20000;
-          if (!isset($this->options['jpab_objects'])) $this->options['jpab_objects'] = $this->maxClients*100000;
+          if (!isset($this->options['jpab_objects'])) {
+            $this->options['jpab_objects'] = $this->maxClients*100000;
+            if ($this->options['jpab_objects'] > 1000000) $this->options['jpab_objects'] = 1000000;
+          }
           if (!isset($this->options['seats_customers'])) {
             $this->options['seats_customers'] = $this->maxClients*100;
+            if ($this->options['seats_customers'] > 40000) $this->options['seats_customers'] = 40000;
             if ($this->options['seats_customers'] < 1000) $this->options['seats_customers'] = 1000;
           }
           if (!isset($this->options['tatp_subscribers'])) $this->options['tatp_subscribers'] = $this->maxClients*10;
           if (!isset($this->options['twitter_users'])) $this->options['twitter_users'] = $this->maxClients*500;
-          if (!isset($this->options['wikipedia_pages'])) $this->options['wikipedia_pages'] = $this->maxClients*1000;
+          if (!isset($this->options['wikipedia_pages'])) {
+            $this->options['wikipedia_pages'] = $this->maxClients*1000;
+            if ($this->options['wikipedia_pages'] > 13000) $this->options['wikipedia_pages'] = 13000;
+          }
           if (!isset($this->options['ycsb_user_rows'])) $this->options['ycsb_user_rows'] = $this->maxClients*10000;
           
           // determine number of steps
@@ -1795,6 +1802,8 @@ class OltpBenchTest {
       case 'seats_customers':
         $val = 1000*round($mb/180);
         if ($val < 1000) $val = 1000;
+        // hard imit of 40k customers due to deadlock issues
+        if ($val > 40000) $val = 40000;
         break;
       case 'tatp_subscribers':
         $val = round($mb/95);
@@ -1811,6 +1820,8 @@ class OltpBenchTest {
       case 'wikipedia_pages':
         $val = 1000*round($mb/300);
         if ($val < 1000) $val = 1000;
+        // hard imit of 13k due to OLTB Bench issues
+        if ($val > 13000) $val = 13000;
         break;
       case 'ycsb_user_rows':
         $val = 1000*round($mb/4);
@@ -2358,7 +2369,7 @@ class OltpBenchTest {
       'db_url' => array('required' => TRUE),
       'db_user' => array('required' => TRUE),
       'font_size' => array('min' => 6, 'max' => 64),
-      'jpab_objects' => array('min' => 100000),
+      'jpab_objects' => array('min' => 100000, 'max' => 8000000),
       'jpab_ratio_delete' => array('min' => 0),
       'jpab_ratio_persist' => array('min' => 0),
       'jpab_ratio_retrieve' => array('min' => 0),
@@ -2371,7 +2382,7 @@ class OltpBenchTest {
       'resourcestresser_ratio_io2' => array('min' => 0),
       'resourcestresser_ratio_contention1' => array('min' => 0),
       'resourcestresser_ratio_contention2' => array('min' => 0),
-      'seats_customers' => array('min' => 1000),
+      'seats_customers' => array('min' => 1000, 'max' => 40000),
       'seats_ratio_delete_reservation' => array('min' => 0),
       'seats_ratio_find_flights' => array('min' => 0),
       'seats_ratio_find_open_seats' => array('min' => 0),
@@ -2410,7 +2421,7 @@ class OltpBenchTest {
       'twitter_ratio_get_user_tweets' => array('min' => 0),
       'twitter_ratio_insert_tweet' => array('min' => 0),
       'twitter_users' => array('min' => 500),
-      'wikipedia_pages' => array('min' => 1000),
+      'wikipedia_pages' => array('min' => 1000, 'max' => 13000),
       'wikipedia_ratio_add_watch_list' => array('min' => 0),
       'wikipedia_ratio_remove_watch_list' => array('min' => 0),
       'wikipedia_ratio_update_page' => array('min' => 0),
@@ -2482,6 +2493,17 @@ class OltpBenchTest {
     if (isset($options['test_size']) && 
         !(preg_match('/^\//', trim($this->options['test_size'])) ? get_free_space($this->options['test_size']) : size_from_string($this->options['test_size']))) {
       $validated['test_size'] = sprintf('%s is not a valid size string (e.g. 100 GB), directory or device', $options['test_size']);
+    }
+    
+    // test specific client limits
+    if (!isset($validated['test'])) {
+      foreach(array('jpab' => 10, 'seats' => 40, 'wikipedia' => 40) as $test => $limit) {
+        if (in_array($test, $options['test'])) {
+          foreach($this->steps as $step) {
+            if ($step['clients'] > $limit) $validated['test'] = sprintf('Max test_clients for %s is %d', $test, $limit);
+          }
+        }
+      }
     }
     
     return $validated;

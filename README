@@ -5,6 +5,10 @@ Benchmark Framework [http://oltpbenchmark.com] (included as a sub-module in
 lib/oltpbench).
 
 
+TODO
+wikipedia 4GB
+
+
 RUNTIME PARAMETERS
 The following runtime parameters and environment metadata may be specified 
 (using run.sh arguments):
@@ -125,12 +129,12 @@ The following runtime parameters and environment metadata may be specified
                             integrity is visible - one of the following (in order 
                             from highest to lowest):
 
-                              serializable (default) => the highest isolation 
-                                level - requires read and write locks (acquired on 
+                              serializable => the highest isolation level - 
+                                requires read and write locks (acquired on 
                                 selected data) to be released at the end of the 
                                 transaction
                                 
-                              repeatable_read => keep read and write locks 
+                              repeatable_read (default) => keep read and write locks 
                                 (acquired on selected data) until the end of the 
                                 transaction
                               
@@ -198,9 +202,12 @@ The following runtime parameters and environment metadata may be specified
 
 * jpab_objects              Number of initial objects for the JPAB benchmark.
                             Default is the max value in --test_clients multiplied 
-                            by 100,000. Value should be a multiple of 100,000. 
-                            Database size is dependent on test execution time - 
-                            about 10MB per minute
+                            by 100,000 up to 1,000,000. Value should be a 
+                            multiple of 100,000. Database size is dependent on 
+                            test execution time - about 10MB per minute. Values 
+                            above 1 million are not recommended. The max value 
+                            for this parameter is 8 million (due to Java heap 
+                            errors above this value)
 
 * jpab_ratio_delete         Delete transaction ratio - default 25
                             (sum of all jpab_ratio_* values should be 100)
@@ -339,9 +346,10 @@ The following runtime parameters and environment metadata may be specified
                             (sum of all resourcestresser_ratio_* values should be 100)
 
 * seats_customers           Number seats customers - default is the max value in 
-                            --test_clients multiplied by 100 (minimum 1000). Value 
+                            --test_clients multiplied by 100 (min 1000, max 40k). Value 
                             should be a multiple of 1000. Every 1000 customers 
-                            requires approximately 180MB disk space
+                            requires approximately 180MB disk space. Due to deadlock
+                            issues, the limit for this parameter is 40,000
 
 * seats_ratio_delete_reservation Delete Reservation transaction ratio - default 10
                             (sum of all seats_ratio_* values should be 100)
@@ -504,7 +512,18 @@ The following runtime parameters and environment metadata may be specified
                             test_process). This is also referred to as terminals 
                             by OLTP-Bench - default is the number of CPU cores. 
                             A range or multiple values may be specified in the 
-                            format [start]-[stop] or [value1],[value2]...
+                            format [start]-[stop] or [value1],[value2]... 
+                            The following tests have hard limits for this 
+                            parameter due to OLTB Bench limitations:
+                            
+                              jpab => 10 (testing hangs at the end if > 10)
+                              
+                              seats => 40 (excessive deadlocks > 40)
+                              
+                              wikipedia => 40 (test failure  > 40)
+                              
+                            Attempting to set test_clients higher than these
+                            values for these tests will result in an error
 
 * test_clients_step         If --test_clients is a range (e.g 10-100), this 
                             parameter may define a step size. For example, if 
@@ -568,14 +587,16 @@ The following runtime parameters and environment metadata may be specified
                               auctionmark_customers => Every 1000 customers 
                                 requires approximately 160MB disk space. Due to
                                 an OLTB Bench related error with data loading,
-                                a hard cap of 10000 customers is enforced 
+                                a hard limit of 10000 customers is enforced 
                                 (1600MB)
                               
                               epinions_users => Every 2000 user requires 
                                 approximately 30MB disk space
                               
                               seats_customers => Every 1000 customers requires 
-                                approximately 180MB disk space
+                                approximately 180MB disk space. A hard limit of 
+                                40k customers is enforced due to an OLTB bench
+                                issue
                               
                               tatp_subscribers => Each subscriber requires 
                                 approximately 95MB disk space
@@ -587,7 +608,9 @@ The following runtime parameters and environment metadata may be specified
                                 approximately 8MB disk space
                               
                               wikipedia_pages => Every 1000 pages requires 
-                                approximately 300MB disk space
+                                approximately 300MB disk space. A hard limit 
+                                of 13k pages is enforced due to an OLTB bench
+                                issue
                               
                               ycsb_user_rows => Every 1000 rows requires 
                                 approximately 4MB disk space
@@ -668,7 +691,9 @@ The following runtime parameters and environment metadata may be specified
 * wikipedia_pages           Number Wikipedia pages - default is the max value in 
                             --test_clients multiplied by 1000. Value should be a 
                             multiple of 1000. Every 1000 pages requires 
-                            approximately 300MB disk space
+                            approximately 300MB disk space. Dueo to OLTB 
+                            benchmark issues, the max value for this parameter is 
+                            13k (~4GB)
 
 * wikipedia_ratio_add_watch_list Add Watch List transaction ratio - default 0.07
                             (sum of all wikipedia_ratio_* values should be 100)
