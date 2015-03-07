@@ -1966,23 +1966,30 @@ class OltpBenchTest {
             if ($dump = isset($this->options['db_dump']) ? str_replace('[scalefactor]', $this->getScaleFactor(), str_replace('[subtest]', $subtest, str_replace('[benchmark]', $test, $this->options['db_dump']))) : NULL) $dump = str_replace(sprintf('%s-%s', $test, $test), $test, $dump);
             
             if ($bcmd && $dump && file_exists($dump) && $this->mysqlOrPostgres) {
+              $start = time();
               foreach($dbNames as $dbName) {
                 $cmd = sprintf('%s %s < %s', $bcmd, $dbName, $dump);
                 print_msg(sprintf('Attempting to import existing database dump file (size %s MB) to database %s - this may take a while', round((filesize($dump)/1024)/1024, 2), $dbName), $this->verbose, __FILE__, __LINE__);
-                $start = time();
                 $ecode = trim(exec($cmd));
-                if ($ecode > 0) print_msg(sprintf('Failed to load database - exit code %d', $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
+                if ($ecode > 0) {
+                  print_msg(sprintf('Failed to load database - exit code %d', $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
+                  $load = TRUE;
+                  break;
+                }
                 else {
                   print_msg(sprintf('Successfully loaded database from dump file %s', $dump), $this->verbose, __FILE__, __LINE__);
-                  $dbLoadFromDump = TRUE;
-                  $dbLoadTime = time() - $start;
                   $load = FALSE;
                 }
+              }
+              if (!$load) {
+                $dbLoadFromDump = TRUE;
+                $dbLoadTime = time() - $start; 
               }
             }
             else if ($dump && $this->mysqlOrPostgres) print_msg(sprintf('Database dump file %s does not exist for load', $dump), $this->verbose, __FILE__, __LINE__);
             
             if ($load) {
+              $start = time();
               foreach($configs as $config) {
                 $cmd = sprintf('cd %s && ./oltpbenchmark -b %s -c %s%s --load=true -o %s/%s >>%s/%s-load.out 2>>%s/%s-load.err', 
                               dirname(__FILE__) . '/oltpbench', 
@@ -1996,10 +2003,10 @@ class OltpBenchTest {
                               $this->options['output'],
                               $testId);
                 print_msg(sprintf('Loading database with test data - this may take a while'), $this->verbose, __FILE__, __LINE__);
-                $start = time();
                 passthru($cmd);
-                $dbLoadTime = time() - $start;
               }
+              $dbLoadTime = time() - $start;
+              
               if (isset($this->options['db_dump']) && $this->mysqlOrPostgres) {
                 $cmd = sprintf('%s%s -h %s %s -%s %s %s %s >> %s',
                                $this->options['db_type'] == 'postgres' && $this->options['db_pswd'] ? 'export PGPASSWORD=' . $this->options['db_pswd'] . '; ' : '',
