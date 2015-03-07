@@ -216,7 +216,7 @@ class OltpBenchTest {
    */
   private function buildOltpBenchConfig() {
     $pids = array();
-    if ($this->options['test_processes'] > 1 && $this->dbPerProcess) {
+    if ($this->dbPerProcess) {
       for($pid=1; $pid<= $this->options['test_processes']; $pid++) $pids[] = $pid;
     }
     else $pids[] = '';
@@ -266,7 +266,7 @@ class OltpBenchTest {
         fclose($fp);
         return NULL;
       }
-      fwrite($fp, sprintf("\n  <persistence-unit>Hibernate-%s%s</persistence-unit>", $this->subtest, $this->options['test_processes'] > 1 && $this->dbPerProcess ? '[pid]' : ''));
+      fwrite($fp, sprintf("\n  <persistence-unit>Hibernate-%s%s</persistence-unit>", $this->subtest, $this->dbPerProcess ? '[pid]' : ''));
       fwrite($fp, sprintf("\n  <testClass>%s</testClass>", OltpBenchTest::getJpabTestClass($this->subtest)));
     }
     // Twitter trace files
@@ -303,7 +303,7 @@ class OltpBenchTest {
     fclose($fp);
     
     // create separate config for each process
-    if ($this->options['test_processes'] > 1 && $this->dbPerProcess) {
+    if ($this->dbPerProcess) {
       for($pid=1; $pid<= $this->options['test_processes']; $pid++) {
         $pconfig = str_replace('.xml', $pid . '.xml', $config);
         $xml = str_replace('[pid]', $pid, file_get_contents($config));
@@ -685,7 +685,7 @@ class OltpBenchTest {
       else fwrite($fp, "set grid noytics\n");
       fwrite($fp, "set tic scale 0\n");
       // centering of labels doesn't work with current CentOS gnuplot package, so simulate for histogram
-      if ($type == 'histogram') fwrite($fp, sprintf("set xtics offset %d\n", round(0.08*(480/count($coords)))));
+      fwrite($fp, sprintf("set xtics offset %d\n", $type == 'histogram' ? round(0.08*(480/count($coords))) : -1));
       fwrite($fp, sprintf("plot \"%s\"", basename($dfile)));
       $colorPtr = 1;
       if ($type != 'line') {
@@ -821,10 +821,10 @@ class OltpBenchTest {
                             'Name' => $results[$lkey]['db_name'],
                             'Driver' => $this->options['db_driver'],
                             'Isolation Level' => ucwords(str_replace('_', ' ', $this->options['db_isolation'])),
-                            'Load Time' => isset($results[$lkey]['db_load_time']) ? $results[$lkey]['db_load_time'] . ' secs' : 'Not Loaded',
-                            'Loaded from Dump?' => isset($results[$lkey]['db_load_time']) ? ($results[$lkey]['db_load_from_dump'] ? 'Yes' : 'No') : 'NA',
-                            'Dataset Size' => isset($results[$lkey]['size']) ? $results[$lkey]['size'] . ' MB' : 'NA');
-          if (isset($results[$lkey]['test_size_label'])) $dbParams[$results[$lkey]['test_size_label']] = $results[$lkey]['test_size_value'];
+                            'Load Time' => isset($results[$lkey]['db_load_time']) ? $results[$lkey]['db_load_time'] . ' secs ' . (isset($results[$lkey]['db_load_time']) ? ($results[$lkey]['db_load_from_dump'] ? '(import)' : '(generated)') : '') : 'Not Loaded',
+                            'Databases' => $this->dbPerProcess ? $this->options['test_processes'] : 1,
+                            'Dataset Size' => isset($results[$lkey]['size']) ? ($results[$lkey]['size']*($this->dbPerProcess ? $this->options['test_processes'] : 1)) . ' MB' : 'NA');
+          if (isset($results[$lkey]['test_size_label'])) $dbParams[$results[$lkey]['test_size_label']] = $results[$lkey]['test_size_value']*($this->dbPerProcess ? $this->options['test_processes'] : 1);
 
           $graphs = array();
           $gresults = array();
@@ -1037,7 +1037,10 @@ class OltpBenchTest {
    */
   public function getRunOptions() {
     if (!isset($this->options)) {
-      if ($this->dir) $this->options = self::getSerializedOptions($this->dir);
+      if ($this->dir) {
+        $this->options = self::getSerializedOptions($this->dir);
+        $this->dbPerProcess = isset($this->options['db_per_process']) && $this->options['db_per_process'];
+      }
       else {
         // default run argument values
         $sysInfo = get_sys_info();
@@ -1403,7 +1406,7 @@ class OltpBenchTest {
         $this->mysqlOrPostgres = $this->options['db_type'] == 'mysql' || $this->options['db_type'] == 'postgres';
         
         // unique database per process
-        $this->dbPerProcess = $this->options['test_processes'] == 0 || preg_match('/\[pid\]/', $this->options['db_name']);
+        $this->dbPerProcess = $this->options['test_processes'] > 1 && preg_match('/\[pid\]/', $this->options['db_name']);
         
       }
     }
@@ -1898,7 +1901,7 @@ class OltpBenchTest {
       $this->test = $test;
       $dbNames = array();
       $dbName = str_replace('[benchmark]', $test, $this->options['db_name']);
-      if ($this->options['test_processes'] > 1 && $this->dbPerProcess) {
+      if ($this->dbPerProcess) {
         for($pid=1; $pid<= $this->options['test_processes']; $pid++) $dbNames[] = str_replace('[pid]', $pid, $dbName);
       }
       else $dbNames[] = $dbName;
@@ -1910,7 +1913,7 @@ class OltpBenchTest {
         $dbLoadFromDump = FALSE;
         if ($config = $this->buildOltpBenchConfig()) {
           $configs = array();
-          if ($this->options['test_processes'] > 1 && $this->dbPerProcess) {
+          if ($this->dbPerProcess) {
             for($pid=1; $pid<= $this->options['test_processes']; $pid++) $configs[] = str_replace('.xml', $pid . '.xml', $config);
           }
           else $configs[] = $config;
@@ -2156,33 +2159,44 @@ class OltpBenchTest {
     foreach(array_keys($this->results) as $key) {
       // add missing metrics for throughput entries where the number of values 
       // is not equal to the number of processes
-      if (isset($this->results[$key]['throughput_values'])) {
-        $skeys = array_keys($this->results[$key]['throughput_values']);
-        $tmedian = $this->results[$key]['throughput_values'][$skeys[round(count($skeys)/2)]];
-        foreach($skeys as $x => $secs) {
-          if (count($this->results[$key]['throughput_values'][$secs]) < $this->options['test_processes']) {
-            print_msg(sprintf('Discovered row at %d seconds with only %d of %d throughput metrics', $secs, count($this->results[$key]['throughput_values'][$secs]), $this->options['test_processes']), $this->verbose, __FILE__, __LINE__);
-            while(count($this->results[$key]['throughput_values'][$secs]) != $this->options['test_processes']) {
-              $this->results[$key]['throughput_values'][$secs][] = isset($this->results[$key]['throughput_values'][$secs][0]) ? $this->results[$key]['throughput_values'][$secs][0] : 0;
+      foreach(array( 'throughput_values', 
+                     'latency_values', 
+                     'latency_values_min',
+                     'latency_values_25',
+                     'latency_values_50',
+                     'latency_values_75',
+                     'latency_values_90',
+                     'latency_values_95',
+                     'latency_values_99',
+                     'latency_values_max') as $p) {
+        if (isset($this->results[$key][$p])) {
+          $skeys = array_keys($this->results[$key][$p]);
+          $tmedian = $this->results[$key][$p][$skeys[round(count($skeys)/2)]];
+          foreach($skeys as $x => $secs) {
+            if (count($this->results[$key][$p][$secs]) < $this->options['test_processes']) {
+              print_msg(sprintf('Discovered row at %d seconds with only %d of %d %s metrics', $secs, count($this->results[$key][$p][$secs]), $this->options['test_processes'], $p), $this->verbose, __FILE__, __LINE__);
+              while(count($this->results[$key][$p][$secs]) != $this->options['test_processes']) {
+                $this->results[$key][$p][$secs][] = isset($this->results[$key][$p][$secs][0]) ? $this->results[$key][$p][$secs][0] : 0;
+              }
             }
-          }
-          // check for zero values and disproportionate in first and last 3 measurements
-          if ($x < 3 || $x > (count($this->results[$key]['throughput_values']) - 3)) {
-            $nonZero = NULL;
-            $zeroIndexes = array();
-            foreach(array_keys($this->results[$key]['throughput_values'][$secs]) as $z) {
-              if ($this->results[$key]['throughput_values'][$secs][$z] > 0) $nonZero = $this->results[$key]['throughput_values'][$secs][$z];
-              else $zeroIndexes[] = $z;
-            }
-            if ($nonZero && count($zeroIndexes)) {
-              print_msg(sprintf('Throughput record at %d seconds has %d zero value metrics - filling these with %d', $secs, count($zeroIndexes), $nonZero), $this->verbose, __FILE__, __LINE__);
-              foreach($zeroIndexes as $z) $this->results[$key]['throughput_values'][$secs][$z] = $nonZero;
-            }
-            // set to median if > 30% variance
-            $ratio = 100*(abs(array_sum($this->results[$key]['throughput_values'][$secs])-array_sum($tmedian))/array_sum($tmedian));
-            if ($ratio > 15) {
-              print_msg(sprintf('Throughput record %d at %d seconds has %d perc variance from the median throughput metric %d - setting to median', array_sum($this->results[$key]['throughput_values'][$secs]), $secs, $ratio, array_sum($tmedian)), $this->verbose, __FILE__, __LINE__);
-              $this->results[$key]['throughput_values'][$secs] = $tmedian;
+            // check for zero values and disproportionate in first and last 6 measurements
+            if ($x < 6 || $x > (count($this->results[$key][$p]) - 6)) {
+              $nonZero = NULL;
+              $zeroIndexes = array();
+              foreach(array_keys($this->results[$key][$p][$secs]) as $z) {
+                if ($this->results[$key][$p][$secs][$z] > 0) $nonZero = $this->results[$key][$p][$secs][$z];
+                else $zeroIndexes[] = $z;
+              }
+              if ($nonZero && count($zeroIndexes)) {
+                print_msg(sprintf('%s record at %d seconds has %d zero value metrics - filling these with %d', $p, $secs, count($zeroIndexes), $nonZero), $this->verbose, __FILE__, __LINE__);
+                foreach($zeroIndexes as $z) $this->results[$key][$p][$secs][$z] = $nonZero;
+              }
+              // set to median if > 30% variance
+              $ratio = 100*(abs(array_sum($this->results[$key][$p][$secs])-array_sum($tmedian))/array_sum($tmedian));
+              if ($ratio > 15) {
+                print_msg(sprintf('%s record %d at %d seconds has %d perc variance from the median throughput metric %d - setting to median', $p, array_sum($this->results[$key][$p][$secs]), $secs, $ratio, array_sum($tmedian)), $this->verbose, __FILE__, __LINE__);
+                $this->results[$key][$p][$secs] = $tmedian;
+              }
             }
           }
         }
