@@ -5,10 +5,6 @@ Benchmark Framework [http://oltpbenchmark.com] (included as a sub-module in
 lib/oltpbench).
 
 
-TODO
-wikipedia 4GB
-
-
 RUNTIME PARAMETERS
 The following runtime parameters and environment metadata may be specified 
 (using run.sh arguments):
