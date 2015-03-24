@@ -1944,7 +1944,7 @@ class OltpBenchTest {
                                isset($this->options['db_port']) ? ($this->options['db_type'] == 'mysql' ? '-P ' : '-p ') . $this->options['db_port'] : '',
                                $this->options['db_type'] == 'mysql' ? 'u' : 'U',
                                $this->options['db_user'],
-                               $this->options['db_type'] == 'mysql' && $this->options['db_pswd'] ? '-p"' . $this->options['db_pswd'] . '"' : '');
+                               $this->options['db_type'] == 'mysql' && isset($this->options['db_pswd']) && $this->options['db_pswd'] ? '-p"' . $this->options['db_pswd'] . '"' : '');
               }
             }
             // attempt to drop and create database
@@ -2015,14 +2015,14 @@ class OltpBenchTest {
                                isset($this->options['db_port']) ? ($this->options['db_type'] == 'mysql' ? '-P ' : '-p ') . $this->options['db_port'] : '',
                                $this->options['db_type'] == 'mysql' ? 'u' : 'U',
                                $this->options['db_user'],
-                               $this->options['db_type'] == 'mysql' && $this->options['db_pswd'] ? '-p"' . $this->options['db_pswd'] . '"' : '-w -c',
+                               $this->options['db_type'] == 'mysql' && isset($this->options['db_pswd']) && $this->options['db_pswd'] ? '-p"' . $this->options['db_pswd'] . '"' : '-w -c',
                                $dbNames[0],
                                $dump);
                 print_msg(sprintf('Attempting to export database dump to file - this may take a while'), $this->verbose, __FILE__, __LINE__);
                 $ecode = trim(exec($cmd));
                 if (!file_exists($dump) || !filesize($dump) || $ecode > 0) {
-                  exec(sprintf('rm -f %s', $dump));
-                  print_msg(sprintf('Failed to dump database - exit code %d', $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
+                  if (!is_dir($dump)) exec(sprintf('rm -f %s', $dump));
+                  print_msg(sprintf('Failed to create or dump database - exit code %d', $ecode), $this->verbose, __FILE__, __LINE__, TRUE);
                 }
                 else {
                   print_msg(sprintf('Successfully dumped database - export file size is %s MB', round((filesize($dump)/1024)/1024, 2)), $this->verbose, __FILE__, __LINE__);
