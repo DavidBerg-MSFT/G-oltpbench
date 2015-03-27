@@ -1057,7 +1057,6 @@ class OltpBenchTest {
           'collectd_rrd_dir' => '/var/lib/collectd/rrd',
           'db_host' => 'localhost',
           'db_isolation' => 'repeatable_read',
-          'db_load' => FALSE,
           'db_name' => 'oltp_[benchmark]',
           'db_type' => 'mysql',
           'db_user' => 'root',
