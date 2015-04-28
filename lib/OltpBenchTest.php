@@ -1752,11 +1752,9 @@ class OltpBenchTest {
    * make coordinates tuples from a results array
    * @param array $vals results array (indexed by seconds)
    * @param boolean $histogram make coordinates for a histogram
-   * @param boolean $secsReset if TRUE, seconds will be explictly set to start 
-   * at 0 and jump by test_sample_interval
    * @return array
    */
-  private function makeCoords($vals, $histogram=FALSE, $secsReset=FALSE) {
+  private function makeCoords($vals, $histogram=FALSE) {
     $coords = array();
     if ($histogram) {
       $min = NULL;
@@ -1777,7 +1775,7 @@ class OltpBenchTest {
       }
     }
     else {
-      foreach(array_keys($vals) as $i => $secs) $coords[] = array($secsReset ? $i*$this->options['test_sample_interval'] : $secs, $vals[$secs]);
+      foreach(array_keys($vals) as $i => $secs) $coords[] = array($secs, $vals[$secs]);
     }
     return $coords;
   }
