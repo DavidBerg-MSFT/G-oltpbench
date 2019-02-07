@@ -4,6 +4,8 @@ This repository provides an execution wrapper for the open source OLTP
 Benchmark Framework [http://oltpbenchmark.com] (included as a sub-module in
 lib/oltpbench).
 
+NOTE: When cloning this repository, please use the --recurse-submodules option
+to also pull the https://github.com/cloudharmony/benchmark submodule.
 
 RUNTIME PARAMETERS
 The following runtime parameters and environment metadata may be specified 
